@@ -38,6 +38,7 @@ class Config:
         default_factory=lambda: "cuda" if torch.cuda.is_available() else "cpu"
     )
     log_base_dir: str = "./logs"
+    save_models: bool = False  # 学習完了時に各センターのモデルを保存する
     num_classes: int = 62
 
     @classmethod
@@ -118,6 +119,12 @@ class Config:
         )
         parser.add_argument(
             "--log-base-dir", type=str, default=d.log_base_dir, help="Log directory"
+        )
+        parser.add_argument(
+            "--save-models",
+            action="store_true",
+            default=d.save_models,
+            help="Save each center's model to checkpoints/ after training",
         )
 
         config = cls(**vars(parser.parse_args()))

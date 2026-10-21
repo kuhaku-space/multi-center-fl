@@ -148,6 +148,8 @@ def train(config: Config, exp_logger: ExperimentLogger):
     for r in range(1, config.rounds + 1):
         run_round(r, clients, server, config, exp_logger)
 
+    if config.save_models:
+        exp_logger.save_models(server.models)
     logger.info("Training Finished.")
 
 

@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pandas as pd
 import torch
+from torch import nn
 
 from mcfl.client import Client
 from mcfl.config import Config
@@ -168,6 +169,14 @@ class ExperimentLogger:
             ]
         )
         self._append_csv(self.client_eval_csv, df)
+
+    def save_models(self, models: list[nn.Module]):
+        """各センターのモデルの重みを checkpoints/center_<k>.pt に保存する"""
+        checkpoint_dir = self.save_dir / "checkpoints"
+        checkpoint_dir.mkdir()
+        for k, model in enumerate(models):
+            torch.save(model.state_dict(), checkpoint_dir / f"center_{k}.pt")
+        logger.info(f"Saved {len(models)} center models to {checkpoint_dir}")
 
     def _write_summary(self, status: str, exc: BaseException | None):
         finished_at = datetime.now()

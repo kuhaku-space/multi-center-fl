@@ -59,6 +59,7 @@ uv run mcfl-train
 | `--data-root` | `./data/nist/extracted` | データのルートディレクトリ |
 | `--device` | `cuda`（利用可能な場合） | 使用デバイス |
 | `--log-base-dir` | `./logs` | ログの出力先 |
+| `--save-models` | 無効 | 学習完了時に各センターのモデルを `checkpoints/` に保存する |
 
 全オプションは `uv run mcfl-train --help` で確認できます。
 
@@ -115,6 +116,7 @@ MNIST 上で FedAvg ([McMahan et al., 2017](https://arxiv.org/abs/1602.05629)) �
 | `client_round.csv` | 縦持ち形式。ラウンドごとに参加したクライアントの所属センター、各センターへの割り当て確率 (`P_k`)、割り当て確率のエントロピー、学習損失 |
 | `client_eval.csv` | 縦持ち形式。ラウンドごと・クライアントごとの評価結果（評価に使ったセンター、精度、検証損失、テストデータ数） |
 | `client_allocation.csv` | ラウンドごとの各クライアントの所属センター（行: ラウンド、列: クライアント） |
+| `checkpoints/center_<k>.pt` | `--save-models` 指定時のみ、学習完了時の各センターのモデルの `state_dict` |
 
 ## ファイル構成
 
