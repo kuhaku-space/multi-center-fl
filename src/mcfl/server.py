@@ -2,7 +2,6 @@ import math
 from dataclasses import dataclass
 
 import torch
-from torch import nn
 
 from mcfl.client import Client, ClientUpdate
 from mcfl.config import Config
@@ -51,7 +50,6 @@ class Server:
             SimpleCNN(config.num_classes).to(self.device)
             for _ in range(config.num_centers)
         ]
-        self.criterion = nn.CrossEntropyLoss()
         # クライアントの所属センター（distance モードで更新する）。評価もこの所属で行う
         self.assignments: dict[str, int] = {}
 
@@ -115,16 +113,7 @@ class Server:
                 probs = client.compute_center_probabilities(self.models)
                 center = probs.index(max(probs))
 
-            model = self.models[center]
-            model.eval()
-            correct, samples, loss_sum = 0, 0, 0.0
-            with torch.no_grad():
-                for x, y in client.test_loader:
-                    x, y = x.to(self.device), y.to(self.device)
-                    out = model(x)
-                    loss_sum += self.criterion(out, y).item() * x.size(0)
-                    correct += (out.argmax(dim=1) == y).sum().item()
-                    samples += y.size(0)
+            correct, samples, loss_sum = client.evaluate(self.models[center])
             results.append(
                 ClientEval(client.writer_id, center, correct, samples, loss_sum)
             )

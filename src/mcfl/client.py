@@ -90,12 +90,12 @@ class Client:
     def train_from(self, model: nn.Module) -> tuple[StateDict, float]:
         """model のコピーをローカル学習し、(更新後の重み, 平均損失) を返す"""
         local_model = copy.deepcopy(model)
-        avg_loss = self._train(local_model)
+        avg_loss = self.train(local_model, self.cfg.local_epochs)
         return local_model.state_dict(), avg_loss
 
-    def _train(self, model: nn.Module) -> float:
+    def train(self, model: nn.Module, epochs: int) -> float:
         """
-        ローカル学習を行い、平均損失（近接項を除く）を返す
+        model をその場で epochs エポックローカル学習し、平均損失（近接項を除く）を返す
 
         prox_mu > 0 なら、学習開始時の重み（= センター）からの距離の近接項
         (μ/2)‖w − w_center‖² を損失に加える（論文の Eq. 7）
@@ -106,7 +106,7 @@ class Client:
 
         total_loss = 0.0
         batch_count = 0
-        for _ in range(self.cfg.local_epochs):
+        for _ in range(epochs):
             for x, y in self.train_loader:
                 x, y = x.to(self.device), y.to(self.device)
                 optimizer.zero_grad()
@@ -124,6 +124,21 @@ class Client:
                 batch_count += 1
 
         return total_loss / batch_count if batch_count > 0 else 0.0
+
+    @torch.no_grad()
+    def evaluate(self, model: nn.Module) -> tuple[int, int, float]:
+        """テストデータで model を評価し、(正解数, サンプル数, 損失の合計) を返す"""
+        model.eval()
+        correct, samples, loss_sum = 0, 0, 0.0
+        if self.test_loader is None:
+            return correct, samples, loss_sum
+        for x, y in self.test_loader:
+            x, y = x.to(self.device), y.to(self.device)
+            out = model(x)
+            loss_sum += self.criterion(out, y).item() * x.size(0)
+            correct += (out.argmax(dim=1) == y).sum().item()
+            samples += y.size(0)
+        return correct, samples, loss_sum
 
     def compute_center_probabilities(
         self, global_models: list[nn.Module]
