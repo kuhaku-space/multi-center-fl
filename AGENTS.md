@@ -10,16 +10,6 @@
 
 ### コミットメッセージ
 
-[Conventional Commits](https://www.conventionalcommits.org/) 形式で英語で書く。
+Conventional Commits 形式で英語で書く。scope はモジュール名（`client`, `server`, `train` など）にし、複数モジュールにまたがる場合は省略する。
 
-- type: `feat` / `fix` / `refactor` / `style` / `docs` / `build` など
-- scope はモジュール名（例: `client`, `server`, `train`, `init`, `logger`, `app`, `setup_data`）。複数モジュールにまたがる場合は省略する。
-- コマンドやパスが変わる破壊的変更は `!` を付け、`BREAKING CHANGE:` フッターを書く。
-
-例:
-
-```
-feat(client): add proximal term to local training
-fix(server): aggregate each center from its assigned clients only
-refactor!: move code into the src/mcfl package
-```
+例: `feat(client): add proximal term to local training`
