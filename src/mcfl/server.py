@@ -10,7 +10,6 @@ from mcfl.model import (
     SimpleCNN,
     StateDict,
     average_weights,
-    compute_losses,
     flatten_weights,
 )
 
@@ -96,7 +95,8 @@ class Server:
         """
         各クライアントのテストデータを、所属センターのモデルで評価する
 
-        所属がないクライアント（loss モードでは全員）は、損失が最小のセンターを選ぶ
+        所属がないクライアント（loss モードでは全員）は、E-step と同じく学習データの
+        先頭バッチで損失が最小のセンターを選ぶ（テストデータは選択に使わない）
         """
         results = []
         for client in clients:
@@ -105,9 +105,8 @@ class Server:
 
             center = self.assignments.get(client.writer_id)
             if center is None:
-                center = self._select_best_center(client.test_loader)
-            if center is None:
-                continue
+                probs = client.compute_center_probabilities(self.models)
+                center = probs.index(max(probs))
 
             model = self.models[center]
             model.eval()
@@ -124,14 +123,3 @@ class Server:
             )
 
         return results
-
-    def _select_best_center(self, loader) -> int | None:
-        """1バッチの損失が最小のセンターを選ぶ（本来はValidation setを使うべきだが簡易的に）"""
-        try:
-            x, y = next(iter(loader))
-        except StopIteration:
-            return None
-
-        x, y = x.to(self.device), y.to(self.device)
-        losses = compute_losses(self.models, x, y, self.criterion)
-        return losses.index(min(losses))
