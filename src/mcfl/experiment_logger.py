@@ -1,11 +1,18 @@
 import json
 import logging
+import math
+import platform
+import socket
+import subprocess
+import sys
+import traceback
 from dataclasses import asdict
 from datetime import datetime
 from itertools import count
 from pathlib import Path
 
 import pandas as pd
+import torch
 
 from mcfl.client import Client
 from mcfl.config import Config
@@ -17,10 +24,16 @@ LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 
 # --- ロガーヘルパー ---
 class ExperimentLogger:
-    """実験ごとのログディレクトリを管理する。with 文の間、ログを train.log にも保存する"""
+    """
+    実験ごとのログディレクトリを管理する
+
+    with 文の間はログを train.log にも保存し、抜けるときに終了状態
+    (completed / failed / interrupted) を summary.json に書き出す
+    """
 
     def __init__(self, config: Config):
-        run_name = f"{datetime.now():%Y%m%d_%H%M%S}_K{config.num_centers}_s{config.seed}"
+        self.started_at = datetime.now()
+        run_name = f"{self.started_at:%Y%m%d_%H%M%S}_K{config.num_centers}_s{config.seed}"
         self.save_dir = _create_run_dir(Path(config.log_base_dir), run_name)
         self.run_id = self.save_dir.name
 
@@ -28,9 +41,11 @@ class ExperimentLogger:
         self.log_csv = self.save_dir / "log.csv"
         self.allocation_csv = self.save_dir / "client_allocation.csv"
         self.allocation_columns = ["Round"]
+        self.last_record: dict | None = None
+        self.best_record: dict | None = None
 
-        with self.config_file.open("w") as f:
-            json.dump(asdict(config), f, indent=4)
+        _write_json(self.config_file, asdict(config))
+        _write_json(self.save_dir / "meta.json", self._collect_meta(config))
 
         # コンソールと同じ内容を train.log にも書き出す
         self._file_handler = logging.FileHandler(self.save_dir / "train.log")
@@ -42,8 +57,16 @@ class ExperimentLogger:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
-        if isinstance(exc, Exception):
+        if exc is None:
+            status = "completed"
+        elif isinstance(exc, KeyboardInterrupt):
+            status = "interrupted"
+            logger.warning("Training interrupted.")
+        else:
+            status = "failed"
             logger.error("Training failed.", exc_info=exc)
+        self._write_summary(status, exc if status == "failed" else None)
+
         logging.getLogger().removeHandler(self._file_handler)
         self._file_handler.close()
 
@@ -70,6 +93,12 @@ class ExperimentLogger:
         for k, v in center_counts.items():
             record[f"Center_{k}_Clients"] = v
 
+        self.last_record = record
+        if not math.isnan(accuracy) and (
+            self.best_record is None or accuracy > self.best_record["Accuracy"]
+        ):
+            self.best_record = record
+
         self._append_csv(self.log_csv, pd.DataFrame([record]))
 
     def save_allocations(self, round_num: int, allocations: dict[str, int]):
@@ -78,9 +107,66 @@ class ExperimentLogger:
         df = pd.DataFrame([record]).reindex(columns=self.allocation_columns)
         self._append_csv(self.allocation_csv, df)
 
+    def _write_summary(self, status: str, exc: BaseException | None):
+        finished_at = datetime.now()
+        summary = {
+            "status": status,
+            "started_at": self.started_at.isoformat(timespec="seconds"),
+            "finished_at": finished_at.isoformat(timespec="seconds"),
+            "duration_sec": round((finished_at - self.started_at).total_seconds(), 1),
+            "last_round": self.last_record["Round"] if self.last_record else 0,
+            "final": self.last_record,
+            "best": self.best_record,
+            "error": "".join(traceback.format_exception(exc)) if exc else None,
+        }
+        _write_json(self.save_dir / "summary.json", summary)
+
+    def _collect_meta(self, config: Config) -> dict:
+        """再現に必要な実行環境の情報を集める（未コミットの変更は git_diff.patch に保存）"""
+        git_status = _git("status", "--porcelain")
+        git_dirty = None if git_status is None else git_status != ""
+        if git_dirty:
+            (self.save_dir / "git_diff.patch").write_text(_git("diff", "HEAD") or "")
+
+        return {
+            "started_at": self.started_at.isoformat(timespec="seconds"),
+            "command": sys.argv,
+            "hostname": socket.gethostname(),
+            "python": platform.python_version(),
+            "torch": torch.__version__,
+            "cuda": torch.version.cuda,
+            "gpu": (
+                torch.cuda.get_device_name(config.device)
+                if "cuda" in config.device
+                else None
+            ),
+            "git_commit": _git("rev-parse", "HEAD"),
+            "git_dirty": git_dirty,
+        }
+
     @staticmethod
     def _append_csv(path: Path, df: pd.DataFrame):
         df.to_csv(path, mode="a", header=not path.exists(), index=False)
+
+
+def _write_json(path: Path, data: dict):
+    with path.open("w") as f:
+        json.dump(data, f, indent=4)
+
+
+def _git(*args: str) -> str | None:
+    """パッケージのあるリポジトリで git を実行する（git がない・リポジトリ外なら None）"""
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=Path(__file__).parent,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return result.stdout.strip()
 
 
 def _create_run_dir(base_dir: Path, name: str) -> Path:

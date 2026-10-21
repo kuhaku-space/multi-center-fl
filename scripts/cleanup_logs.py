@@ -20,6 +20,24 @@ def get_experiment_status(exp_dir: Path) -> ExperimentStatus:
     """実験フォルダの状態を判定する"""
     config_path = exp_dir / "config.json"
     log_path = exp_dir / "log.csv"
+    summary_path = exp_dir / "summary.json"
+
+    # summary.json があれば、記録された終了状態を使う
+    if summary_path.exists():
+        try:
+            summary = json.loads(summary_path.read_text())
+            total_rounds = json.loads(config_path.read_text()).get("rounds", 0)
+        except (OSError, json.JSONDecodeError) as e:
+            return ExperimentStatus(False, f"Broken summary/config: {e}")
+        status = summary.get("status", "unknown")
+        return ExperimentStatus(
+            status == "completed",
+            status.capitalize(),
+            summary.get("last_round", 0),
+            total_rounds,
+        )
+
+    # summary.json がない = 強制終了された、または古い形式のログ
 
     # 1. Configがない = 起動直後に落ちたゴミデータ
     if not config_path.exists():

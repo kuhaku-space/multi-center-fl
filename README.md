@@ -88,7 +88,7 @@ uv run streamlit run app.py
 uv run scripts/cleanup_logs.py
 ```
 
-`./logs` 内の実験のうち、設定したラウンド数まで到達していないものを一覧表示し、確認のうえ削除します。
+`./logs` 内の実験のうち、完了していないもの（`summary.json` の状態が `completed` でないもの。`summary.json` がなければ設定したラウンド数まで到達していないもの）を一覧表示し、確認のうえ削除します。
 
 ### FedAvg（ベースライン）
 
@@ -106,6 +106,9 @@ MNIST 上で FedAvg ([McMahan et al., 2017](https://arxiv.org/abs/1602.05629)) �
 | ファイル | 内容 |
 | --- | --- |
 | `config.json` | 実験の設定 |
+| `meta.json` | 実行環境（コマンド、ホスト名、Python・PyTorch・CUDA のバージョン、GPU、git のコミットと未コミット変更の有無） |
+| `git_diff.patch` | 未コミットの変更がある場合のみ、`git diff HEAD` の内容 |
+| `summary.json` | 終了状態（`completed` / `failed` / `interrupted`）、実行時間、最終ラウンドと最高精度のラウンドの指標、失敗時のトレースバック |
 | `train.log` | コンソールに出力されたログ（例外のトレースバックを含む） |
 | `log.csv` | ラウンドごとの学習損失・検証損失・精度・実行時間・各センターの所属クライアント数 |
 | `client_allocation.csv` | ラウンドごとの各クライアントの所属センター |
