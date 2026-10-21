@@ -26,7 +26,10 @@ class Config:
     alpha: float = 0.5  # Dirichlet concentration parameter
 
     # EM algorithm設定 (Multi-Center FL paper)
-    # Temperature for soft assignment (lower = harder assignment)
+    # E-step の割り当て方法。distance: 学習後の重みに最も近いセンター（公式実装と同様）、
+    # loss: 学習前に損失が最小のセンター
+    assignment: str = "distance"
+    # Temperature for soft assignment (lower = harder assignment)。loss モードのログ用
     em_temperature: float = 1.0
     # センター初期化前の FedAvg 事前学習ラウンド数（0 ならランダム初期化）
     pretrain_rounds: int = 5
@@ -99,6 +102,13 @@ class Config:
             type=float,
             default=d.alpha,
             help="Dirichlet concentration parameter (smaller alpha = more non-IID)",
+        )
+        parser.add_argument(
+            "--assignment",
+            type=str,
+            default=d.assignment,
+            choices=["distance", "loss"],
+            help="E-step assignment (distance: nearest center in weight space, loss: lowest loss)",
         )
         parser.add_argument(
             "--pretrain-rounds",

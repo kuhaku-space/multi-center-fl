@@ -53,6 +53,11 @@ def compute_losses(
     return losses
 
 
+def flatten_weights(weights: StateDict) -> torch.Tensor:
+    """重みを1本のベクトル (CPU, float32) にする"""
+    return torch.cat([w.detach().flatten().float().cpu() for w in weights.values()])
+
+
 def average_weights(weights: list[StateDict]) -> StateDict:
     """複数モデルの重みの単純平均"""
     return {key: sum(w[key] for w in weights) / len(weights) for key in weights[0]}

@@ -16,7 +16,7 @@ import pandas as pd
 import torch
 from torch import nn
 
-from mcfl.client import Client
+from mcfl.client import Client, ClientUpdate
 from mcfl.config import Config
 from mcfl.server import ClientEval, summarize
 
@@ -131,25 +131,19 @@ class ExperimentLogger:
 
         self._append_csv(self.log_csv, pd.DataFrame([record]))
 
-    def save_client_rounds(
-        self, round_num: int, participations: list[tuple[str, list[float], float]]
-    ):
-        """
-        そのラウンドに参加したクライアントの割り当て確率と学習損失を保存する
-
-        participations: [(writer_id, センターごとの割り当て確率, 学習損失), ...]
-        """
-        rows = []
-        for writer_id, probs, loss in participations:
-            row = {
+    def save_client_rounds(self, round_num: int, updates: list[ClientUpdate]):
+        """そのラウンドに参加したクライアントの割り当て（とその根拠）と学習損失を保存する"""
+        rows = [
+            {
                 "Round": round_num,
-                "Writer ID": writer_id,
-                "Center": probs.index(max(probs)),
+                "Writer ID": u.writer_id,
+                "Start Center": u.start_center,
+                "Center": u.center,
+                **u.scores,
+                "Train Loss": u.train_loss,
             }
-            row |= {f"P_{k}": p for k, p in enumerate(probs)}
-            row["Entropy"] = -sum(p * math.log(p) for p in probs if p > 0)
-            row["Train Loss"] = loss
-            rows.append(row)
+            for u in updates
+        ]
         self._append_csv(self.client_round_csv, pd.DataFrame(rows))
 
         # ダッシュボードのヒートマップ用（行: ラウンド、列: クライアント）

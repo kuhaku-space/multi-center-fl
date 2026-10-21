@@ -7,7 +7,7 @@ import torch
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 
-from mcfl.client import Client, sample_clients
+from mcfl.client import Client, ClientUpdate, sample_clients
 from mcfl.config import Config
 from mcfl.dataset import NistDataManager
 from mcfl.experiment_logger import LOG_FORMAT, ExperimentLogger
@@ -61,8 +61,7 @@ def run_round(
 
     sampled_indices = sample_clients(len(clients), config.frac)
 
-    updates = []
-    participations: list[tuple[str, list[float], float]] = []
+    updates: list[ClientUpdate] = []
     center_counts = dict.fromkeys(range(config.num_centers), 0)
 
     # 選択されたクライアントで学習
@@ -73,16 +72,16 @@ def run_round(
         ncols=80,
     ):
         client = clients[idx]
-        probs, weights, loss = client.participate(server.models)
-        updates.append((probs, weights, loss))
-        participations.append((client.writer_id, probs, loss))
-
-        # 最大確率のセンターを割り当てとして集計
-        center_counts[probs.index(max(probs))] += 1
+        if config.assignment == "distance":
+            update = server.participate_by_distance(client)
+        else:
+            update = client.participate(server.models)
+        updates.append(update)
+        center_counts[update.center] += 1
 
     # 集約
     server.aggregate(updates)
-    avg_train_loss = float(np.mean([loss for _, _, loss in updates]))
+    avg_train_loss = float(np.mean([u.train_loss for u in updates]))
     train_time = time.time() - start_time
 
     # 評価
@@ -106,7 +105,7 @@ def run_round(
         eval_time,
         eval_results,
     )
-    exp_logger.save_client_rounds(round_num, participations)
+    exp_logger.save_client_rounds(round_num, updates)
     exp_logger.save_client_evals(round_num, eval_results)
 
 
@@ -144,6 +143,11 @@ def train(config: Config, exp_logger: ExperimentLogger):
     if config.pretrain_rounds > 0:
         centers, init_centers = initialize_centers(clients, config)
         server.load_centers(centers)
+        if config.assignment == "distance":
+            # K-Means のクラスタを初期の所属とする
+            server.assignments = {
+                c.writer_id: k for c, k in zip(clients, init_centers, strict=True)
+            }
     exp_logger.save_clients(clients, init_centers)
 
     # 4. 学習ループ

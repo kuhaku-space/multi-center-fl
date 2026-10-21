@@ -1,4 +1,6 @@
 import copy
+import math
+from dataclasses import dataclass
 
 import numpy as np
 import torch
@@ -10,6 +12,19 @@ from mcfl.dataset import NistWriterDataset
 from mcfl.model import StateDict, compute_losses
 
 TRAIN_RATIO = 0.8
+
+
+@dataclass
+class ClientUpdate:
+    """1クライアントの1ラウンド分の学習結果"""
+
+    writer_id: str
+    start_center: int  # ローカル学習を始めたセンター
+    center: int  # M-step で割り当てるセンター
+    # 割り当ての根拠（ログ用）。loss: 割り当て確率 P_k と Entropy、distance: 距離 D_k
+    scores: dict[str, float]
+    weights: StateDict
+    train_loss: float
 
 
 def sample_clients(num_clients: int, frac: float) -> np.ndarray:
@@ -62,18 +77,15 @@ class Client:
     def num_samples(self) -> int:
         return len(self.train_dataset) + len(self.test_dataset)
 
-    def participate(
-        self, global_models: list[nn.Module]
-    ) -> tuple[list[float], StateDict, float]:
-        """
-        E-step: ソフト割り当て確率を計算し、最良モデルで学習
+    def participate(self, global_models: list[nn.Module]) -> ClientUpdate:
+        """損失ベースの E-step: 割り当て確率を計算し、確率が最大のセンターから学習する"""
+        probs = self.compute_center_probabilities(global_models)
+        center = probs.index(max(probs))
+        weights, avg_loss = self.train_from(global_models[center])
 
-        Returns:
-            tuple: (確率リスト, 更新後の重み, 平均損失)
-        """
-        probs = self._compute_center_probabilities(global_models)
-        weights, avg_loss = self.train_from(global_models[probs.index(max(probs))])
-        return probs, weights, avg_loss
+        scores = {f"P_{k}": p for k, p in enumerate(probs)}
+        scores["Entropy"] = -sum(p * math.log(p) for p in probs if p > 0)
+        return ClientUpdate(self.writer_id, center, center, scores, weights, avg_loss)
 
     def train_from(self, model: nn.Module) -> tuple[StateDict, float]:
         """model のコピーをローカル学習し、(更新後の重み, 平均損失) を返す"""
@@ -101,7 +113,7 @@ class Client:
 
         return total_loss / batch_count if batch_count > 0 else 0.0
 
-    def _compute_center_probabilities(
+    def compute_center_probabilities(
         self, global_models: list[nn.Module]
     ) -> list[float]:
         """
@@ -110,9 +122,9 @@ class Client:
         論文のアルゴリズムに基づき、softmax(-loss/τ) で確率を計算
 
         Note:
-            公式実装 (https://github.com/caifederated/multi-center-fed-learning) では
-            クライアントのモデル重みに対するK-Meansクラスタリングが使用されていますが、
-            本実装では論文(ArXiv:2005.01026)の記述通り、損失値に基づくEMアルゴリズムを採用しています。
+            損失ベースの割り当てでは、多くのクライアントから更新を受けて学習が進んだセンターが
+            どのクライアントに対しても損失が小さくなり、全クライアントを取り込みやすい。
+            公式実装と同様の重み空間での距離による割り当ては Server.participate_by_distance を参照。
         """
         # 学習データの最初のバッチを使って判断する
         try:

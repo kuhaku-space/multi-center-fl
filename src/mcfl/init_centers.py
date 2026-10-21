@@ -6,7 +6,7 @@ from tqdm import tqdm
 
 from mcfl.client import Client, sample_clients
 from mcfl.config import Config
-from mcfl.model import SimpleCNN, StateDict, average_weights
+from mcfl.model import SimpleCNN, StateDict, average_weights, flatten_weights
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +54,8 @@ def initialize_centers(
     ]
 
     # 3. 重みの差分のクラスタリング
-    base = _flatten(model.state_dict())
-    deltas = torch.stack([_flatten(w) - base for w in weights])
+    base = flatten_weights(model.state_dict())
+    deltas = torch.stack([flatten_weights(w) - base for w in weights])
     labels = kmeans(deltas, config.num_centers, config.seed)
 
     centers = []
@@ -104,7 +104,3 @@ def kmeans(x: torch.Tensor, k: int, seed: int) -> list[int]:
 def _cdist(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     # 高次元では行列積による高速計算の誤差が大きいため、直接計算する
     return torch.cdist(x, y, compute_mode="donot_use_mm_for_euclid_dist")
-
-
-def _flatten(weights: StateDict) -> torch.Tensor:
-    return torch.cat([w.detach().flatten().float().cpu() for w in weights.values()])

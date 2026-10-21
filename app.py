@@ -181,7 +181,8 @@ def render_center_metrics(log_df: pd.DataFrame):
 
 
 def render_assignment_entropy(client_round_df: pd.DataFrame, num_centers: int):
-    if client_round_df.empty:
+    # loss モードのログにだけある
+    if "Entropy" not in client_round_df.columns:
         return
 
     st.subheader("🎲 Assignment Uncertainty")
@@ -198,6 +199,25 @@ def render_assignment_entropy(client_round_df: pd.DataFrame, num_centers: int):
         markers=True,
     )
     fig.add_hline(y=math.log(num_centers), line_dash="dot", annotation_text="log K")
+    st.plotly_chart(fig, width="stretch")
+
+
+def render_reassignment(client_round_df: pd.DataFrame):
+    # distance モードのログにだけある
+    if "D_0" not in client_round_df.columns:
+        return
+
+    st.subheader("🔀 Reassignment")
+    st.caption(
+        "学習後の重みに最も近いセンターが、学習を始めたセンターと異なったクライアントの割合です。"
+        "0 に張り付いている場合、所属は初期クラスタから変わっていません。"
+    )
+    reassigned = client_round_df["Center"] != client_round_df["Start Center"]
+    rate_df = (
+        reassigned.groupby(client_round_df["Round"]).mean().reset_index(name="Rate")
+    )
+    fig = px.line(rate_df, x="Round", y="Rate", title="Reassignment Rate", markers=True)
+    fig.update_yaxes(range=[0, 1])
     st.plotly_chart(fig, width="stretch")
 
 
@@ -295,6 +315,7 @@ def main():
     render_center_metrics(log_df)
     render_cluster_sizes(log_df)
     render_assignment_entropy(data.client_round_df, num_centers)
+    render_reassignment(data.client_round_df)
     render_client_accuracy(data.client_eval_df)
     render_allocation_heatmap(data.alloc_df, num_centers)
 

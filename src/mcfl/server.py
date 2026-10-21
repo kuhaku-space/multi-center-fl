@@ -4,9 +4,15 @@ from dataclasses import dataclass
 import torch
 from torch import nn
 
-from mcfl.client import Client
+from mcfl.client import Client, ClientUpdate
 from mcfl.config import Config
-from mcfl.model import SimpleCNN, StateDict, average_weights, compute_losses
+from mcfl.model import (
+    SimpleCNN,
+    StateDict,
+    average_weights,
+    compute_losses,
+    flatten_weights,
+)
 
 
 @dataclass
@@ -40,16 +46,41 @@ class Server:
             for _ in range(config.num_centers)
         ]
         self.criterion = nn.CrossEntropyLoss()
+        # クライアントの所属センター（distance モードで更新する）。評価もこの所属で行う
+        self.assignments: dict[str, int] = {}
 
     def load_centers(self, centers: list[StateDict]):
         for model, weights in zip(self.models, centers, strict=True):
             model.load_state_dict(weights)
 
-    def aggregate(self, updates: list[tuple[list[float], StateDict, float]]):
+    def participate_by_distance(self, client: Client) -> ClientUpdate:
+        """
+        距離ベースの E-step（公式実装と同様）
+
+        クライアントは所属センターからローカル学習し、学習後の重みに最も近いセンターに割り当て直す。
+        所属がまだないクライアント（ランダム初期化時）は、損失が最小のセンターから始める。
+        """
+        start = self.assignments.get(client.writer_id)
+        if start is None:
+            probs = client.compute_center_probabilities(self.models)
+            start = probs.index(max(probs))
+        weights, avg_loss = client.train_from(self.models[start])
+
+        flat = flatten_weights(weights)
+        distances = [
+            torch.linalg.vector_norm(flat - flatten_weights(m.state_dict())).item()
+            for m in self.models
+        ]
+        center = distances.index(min(distances))
+        self.assignments[client.writer_id] = center
+
+        scores = {f"D_{k}": d for k, d in enumerate(distances)}
+        return ClientUpdate(client.writer_id, start, center, scores, weights, avg_loss)
+
+    def aggregate(self, updates: list[ClientUpdate]):
         """
         M-step: 各センターを、そのセンターに割り当てられたクライアントの重みの平均で更新する
 
-        割り当ては確率が最大のセンター（= クライアントが学習に使ったセンター）とする hard な割り当て。
         割り当てられたクライアントがいないセンターは前のモデルを維持する。
 
         Note:
@@ -57,22 +88,24 @@ class Server:
             同じ平均を受け取り、数ラウンドで同一のモデルに収束してしまう。
         """
         for center_idx, model in enumerate(self.models):
-            assigned = [
-                weights
-                for probs, weights, _ in updates
-                if probs.index(max(probs)) == center_idx
-            ]
+            assigned = [u.weights for u in updates if u.center == center_idx]
             if assigned:
                 model.load_state_dict(average_weights(assigned))
 
     def evaluate(self, clients: list[Client]) -> list[ClientEval]:
-        """各クライアントのテストデータで、損失が最小のセンターを選んで評価する"""
+        """
+        各クライアントのテストデータを、所属センターのモデルで評価する
+
+        所属がないクライアント（loss モードでは全員）は、損失が最小のセンターを選ぶ
+        """
         results = []
         for client in clients:
             if client.test_loader is None:
                 continue
 
-            center = self._select_best_center(client.test_loader)
+            center = self.assignments.get(client.writer_id)
+            if center is None:
+                center = self._select_best_center(client.test_loader)
             if center is None:
                 continue
 
