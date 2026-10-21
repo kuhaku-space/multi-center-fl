@@ -7,14 +7,19 @@ from pathlib import Path
 
 import pandas as pd
 
+from mcfl.client import Client
 from mcfl.config import Config
 
 logger = logging.getLogger(__name__)
 
+LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
+
 
 # --- ロガーヘルパー ---
 class ExperimentLogger:
-    def __init__(self, config: Config, writer_ids: list[str]):
+    """実験ごとのログディレクトリを管理する。with 文の間、ログを train.log にも保存する"""
+
+    def __init__(self, config: Config):
         run_name = f"{datetime.now():%Y%m%d_%H%M%S}_K{config.num_centers}_s{config.seed}"
         self.save_dir = _create_run_dir(Path(config.log_base_dir), run_name)
         self.run_id = self.save_dir.name
@@ -22,13 +27,29 @@ class ExperimentLogger:
         self.config_file = self.save_dir / "config.json"
         self.log_csv = self.save_dir / "log.csv"
         self.allocation_csv = self.save_dir / "client_allocation.csv"
-        # 列は全クライアントで固定（未参加のラウンドは空欄になる）
-        self.allocation_columns = ["Round"] + sorted(writer_ids)
+        self.allocation_columns = ["Round"]
 
         with self.config_file.open("w") as f:
             json.dump(asdict(config), f, indent=4)
 
+        # コンソールと同じ内容を train.log にも書き出す
+        self._file_handler = logging.FileHandler(self.save_dir / "train.log")
+        self._file_handler.setFormatter(logging.Formatter(LOG_FORMAT))
+
+    def __enter__(self) -> "ExperimentLogger":
+        logging.getLogger().addHandler(self._file_handler)
         logger.info(f"Experiment initialized. Logs at: {self.save_dir}")
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        if isinstance(exc, Exception):
+            logger.error("Training failed.", exc_info=exc)
+        logging.getLogger().removeHandler(self._file_handler)
+        self._file_handler.close()
+
+    def save_clients(self, clients: list[Client]):
+        # 列は全クライアントで固定（未参加のラウンドは空欄になる）
+        self.allocation_columns = ["Round"] + sorted(c.writer_id for c in clients)
 
     def save_round_log(
         self,

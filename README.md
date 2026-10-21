@@ -106,6 +106,7 @@ MNIST 上で FedAvg ([McMahan et al., 2017](https://arxiv.org/abs/1602.05629)) �
 | ファイル | 内容 |
 | --- | --- |
 | `config.json` | 実験の設定 |
+| `train.log` | コンソールに出力されたログ（例外のトレースバックを含む） |
 | `log.csv` | ラウンドごとの学習損失・検証損失・精度・実行時間・各センターの所属クライアント数 |
 | `client_allocation.csv` | ラウンドごとの各クライアントの所属センター |
 

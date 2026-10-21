@@ -1,14 +1,16 @@
 import logging
+import sys
 import time
 
 import numpy as np
 import torch
 from tqdm import tqdm
+from tqdm.contrib.logging import logging_redirect_tqdm
 
 from mcfl.client import Client
 from mcfl.config import Config
 from mcfl.dataset import NistDataManager
-from mcfl.experiment_logger import ExperimentLogger
+from mcfl.experiment_logger import LOG_FORMAT, ExperimentLogger
 from mcfl.server import Server
 
 logger = logging.getLogger(__name__)
@@ -100,28 +102,35 @@ def run_round(
 
 # --- メイン実行 ---
 def main():
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-    )
+    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
     config = Config.from_args()
+
+    exp_logger = ExperimentLogger(config)
+    try:
+        # tqdm のプログレスバーとログ出力が混ざらないようにする
+        with exp_logger, logging_redirect_tqdm():
+            train(config, exp_logger)
+    except Exception:
+        # 例外の内容は ExperimentLogger が記録済み
+        sys.exit(1)
+
+
+def train(config: Config, exp_logger: ExperimentLogger):
     log_environment(config)
     set_seed(config.seed)
 
     # 1. データ準備
     datasets = NistDataManager(config).prepare_data()
     if not datasets:
-        logger.error("No datasets created. Exiting.")
-        return
+        raise RuntimeError("No datasets created.")
 
     # 2. Client / Server 初期化
     clients = [Client(ds, config) for ds in datasets]
     server = Server(config)
     log_data_summary(clients)
+    exp_logger.save_clients(clients)
 
-    # 3. ログ管理初期化
-    exp_logger = ExperimentLogger(config, [c.writer_id for c in clients])
-
-    # 4. 学習ループ
+    # 3. 学習ループ
     logger.info(
         f"Start Training with {len(clients)} writers. (Centers: {config.num_centers})"
     )
