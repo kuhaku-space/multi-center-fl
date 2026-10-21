@@ -10,6 +10,7 @@ from dataclasses import asdict
 from datetime import datetime
 from itertools import count
 from pathlib import Path
+from typing import Self
 
 import pandas as pd
 import torch
@@ -35,7 +36,9 @@ class ExperimentLogger:
 
     def __init__(self, config: Config):
         self.started_at = datetime.now()
-        run_name = f"{self.started_at:%Y%m%d_%H%M%S}_K{config.num_centers}_s{config.seed}"
+        run_name = (
+            f"{self.started_at:%Y%m%d_%H%M%S}_K{config.num_centers}_s{config.seed}"
+        )
         self.save_dir = _create_run_dir(Path(config.log_base_dir), run_name)
         self.run_id = self.save_dir.name
 
@@ -56,7 +59,7 @@ class ExperimentLogger:
         self._file_handler = logging.FileHandler(self.save_dir / "train.log")
         self._file_handler.setFormatter(logging.Formatter(LOG_FORMAT))
 
-    def __enter__(self) -> "ExperimentLogger":
+    def __enter__(self) -> Self:
         logging.getLogger().addHandler(self._file_handler)
         logger.info(f"Experiment initialized. Logs at: {self.save_dir}")
         return self

@@ -121,7 +121,7 @@ def main():
         # tqdm のプログレスバーとログ出力が混ざらないようにする
         with exp_logger, logging_redirect_tqdm():
             train(config, exp_logger)
-    except Exception:
+    except Exception:  # noqa: BLE001
         # 例外の内容は ExperimentLogger が記録済み
         sys.exit(1)
 
