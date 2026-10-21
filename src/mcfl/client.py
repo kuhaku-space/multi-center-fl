@@ -4,9 +4,9 @@ import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader, random_split
 
-from config import Config
-from dataset import NistWriterDataset
-from model import compute_losses
+from mcfl.config import Config
+from mcfl.dataset import NistWriterDataset
+from mcfl.model import compute_losses
 
 TRAIN_RATIO = 0.8
 

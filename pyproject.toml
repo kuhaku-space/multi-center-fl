@@ -1,7 +1,7 @@
 [project]
 name = "federatedleaning"
 version = "0.1.0"
-description = "Add your description here"
+description = "Multi-Center Federated Learning simulation on NIST SD19"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -15,3 +15,13 @@ dependencies = [
     "torchvision>=0.24.1",
     "tqdm>=4.67.1",
 ]
+
+[project.scripts]
+mcfl-train = "mcfl.train:main"
+
+[build-system]
+requires = ["uv_build>=0.13.3,<0.14"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "mcfl"

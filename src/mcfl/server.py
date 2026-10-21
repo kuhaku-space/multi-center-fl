@@ -1,9 +1,9 @@
 import torch
 from torch import nn
 
-from client import Client
-from config import Config
-from model import SimpleCNN, compute_losses
+from mcfl.client import Client
+from mcfl.config import Config
+from mcfl.model import SimpleCNN, compute_losses
 
 # 無視できる寄与とみなす割り当て確率の閾値
 MIN_WEIGHT = 1e-6

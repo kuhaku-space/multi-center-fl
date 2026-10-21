@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from config import Config
+from mcfl.config import Config
 
 logger = logging.getLogger(__name__)
 

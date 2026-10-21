@@ -9,7 +9,7 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 from tqdm import tqdm
 
-from config import Config
+from mcfl.config import Config
 
 logger = logging.getLogger(__name__)
 

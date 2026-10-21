@@ -9,8 +9,8 @@ NIST Special Database 19 の手書き文字データを使った、マルチセ�
 各ラウンドで以下を繰り返します。
 
 1. **クライアントのサンプリング**: 全クライアントのうち `frac` の割合をランダムに選ぶ。
-2. **E-step**（[client.py](client.py)）: 各クライアントが学習データの先頭バッチで全センターの損失を計算し、`softmax(-loss / τ)` でセンターへのソフト割り当て確率を求める。確率が最大のセンターのモデルをコピーしてローカル学習する。
-3. **M-step**（[server.py](server.py)）: 各センターのモデルを、そのセンターへの割り当て確率で重み付けしたクライアント重みの平均で更新する。
+2. **E-step**（[client.py](src/mcfl/client.py)）: 各クライアントが学習データの先頭バッチで全センターの損失を計算し、`softmax(-loss / τ)` でセンターへのソフト割り当て確率を求める。確率が最大のセンターのモデルをコピーしてローカル学習する。
+3. **M-step**（[server.py](src/mcfl/server.py)）: 各センターのモデルを、そのセンターへの割り当て確率で重み付けしたクライアント重みの平均で更新する。
 4. **評価**: 各クライアントのテストデータで、損失が最小のセンターのモデルを選んで精度を測る。
 
 > 公式実装 ([caifederated/multi-center-fed-learning](https://github.com/caifederated/multi-center-fed-learning)) はクライアント重みに対する K-Means を使っていますが、本実装は論文の記述どおり損失ベースの EM アルゴリズムを採用しています。
@@ -28,7 +28,7 @@ NIST Special Database 19 の手書き文字データを使った、マルチセ�
 uv sync
 
 # NIST SD19 (by_class.zip) のダウンロードと展開
-uv run setup_data.py
+uv run scripts/setup_data.py
 ```
 
 データは `./data/nist/extracted/by_class` に展開されます。
@@ -38,7 +38,7 @@ uv run setup_data.py
 ### マルチセンター連合学習の実行
 
 ```bash
-uv run main.py
+uv run mcfl-train
 ```
 
 主なオプション:
@@ -60,12 +60,12 @@ uv run main.py
 | `--device` | `cuda`（利用可能な場合） | 使用デバイス |
 | `--log-base-dir` | `./logs` | ログの出力先 |
 
-全オプションは `uv run main.py --help` で確認できます。
+全オプションは `uv run mcfl-train --help` で確認できます。
 
 実行例:
 
 ```bash
-uv run main.py --num-centers 3 --rounds 100 --noniid-type dirichlet --alpha 0.1
+uv run mcfl-train --num-centers 3 --rounds 100 --noniid-type dirichlet --alpha 0.1
 ```
 
 各クライアントは 1 人の書き手に対応し、データは 80% を学習用、20% をテスト用に分割します。ラベルは数字・英大文字・英小文字の 62 クラスです。
@@ -85,7 +85,7 @@ uv run streamlit run app.py
 ### 未完了ログの削除
 
 ```bash
-uv run cleanup_logs.py
+uv run scripts/cleanup_logs.py
 ```
 
 `./logs` 内の実験のうち、設定したラウンド数まで到達していないものを一覧表示し、確認のうえ削除します。
@@ -93,8 +93,8 @@ uv run cleanup_logs.py
 ### FedAvg（ベースライン）
 
 ```bash
-uv run fed-avg.py --model cnn          # Non-IID
-uv run fed-avg.py --model cnn --iid    # IID
+uv run baselines/fedavg.py --model cnn          # Non-IID
+uv run baselines/fedavg.py --model cnn --iid    # IID
 ```
 
 MNIST 上で FedAvg ([McMahan et al., 2017](https://arxiv.org/abs/1602.05629)) を実行します。MNIST は初回実行時に `./data/` へ自動でダウンロードされ、精度の推移は `fedavg_result.png` に保存されます。
@@ -113,14 +113,16 @@ MNIST 上で FedAvg ([McMahan et al., 2017](https://arxiv.org/abs/1602.05629)) �
 
 | ファイル | 役割 |
 | --- | --- |
-| [main.py](main.py) | マルチセンター連合学習のエントリーポイント |
-| [config.py](config.py) | 設定とコマンドライン引数 |
-| [dataset.py](dataset.py) | NIST データの読み込みとクライアントへの分割 |
-| [model.py](model.py) | CNN モデル |
-| [client.py](client.py) | クライアント（E-step とローカル学習） |
-| [server.py](server.py) | サーバー（M-step と評価） |
-| [logger.py](logger.py) | 実験ログの保存 |
+| [src/mcfl/train.py](src/mcfl/train.py) | マルチセンター連合学習のエントリーポイント（`mcfl-train`） |
+| [src/mcfl/config.py](src/mcfl/config.py) | 設定とコマンドライン引数 |
+| [src/mcfl/dataset.py](src/mcfl/dataset.py) | NIST データの読み込みとクライアントへの分割 |
+| [src/mcfl/model.py](src/mcfl/model.py) | CNN モデル |
+| [src/mcfl/client.py](src/mcfl/client.py) | クライアント（E-step とローカル学習） |
+| [src/mcfl/server.py](src/mcfl/server.py) | サーバー（M-step と評価） |
+| [src/mcfl/experiment_logger.py](src/mcfl/experiment_logger.py) | 実験ログの保存 |
 | [app.py](app.py) | Streamlit ダッシュボード |
-| [setup_data.py](setup_data.py) | NIST データのダウンロード |
-| [cleanup_logs.py](cleanup_logs.py) | 未完了ログの削除 |
-| [fed-avg.py](fed-avg.py) | MNIST での FedAvg ベースライン |
+| [scripts/setup_data.py](scripts/setup_data.py) | NIST データのダウンロード |
+| [scripts/cleanup_logs.py](scripts/cleanup_logs.py) | 未完了ログの削除 |
+| [baselines/fedavg.py](baselines/fedavg.py) | MNIST での FedAvg ベースライン |
+
+いずれのコマンドもプロジェクトルートで実行してください（`./data` と `./logs` はカレントディレクトリからの相対パスです）。

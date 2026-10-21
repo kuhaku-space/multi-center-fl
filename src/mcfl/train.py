@@ -5,11 +5,11 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from client import Client
-from config import Config
-from dataset import NistDataManager
-from logger import ExperimentLogger
-from server import Server
+from mcfl.client import Client
+from mcfl.config import Config
+from mcfl.dataset import NistDataManager
+from mcfl.experiment_logger import ExperimentLogger
+from mcfl.server import Server
 
 logger = logging.getLogger(__name__)
 
