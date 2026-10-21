@@ -84,6 +84,22 @@ uv run mcfl-train --num-centers 3 --rounds 100 --noniid-type dirichlet --alpha 0
 
 各クライアントは 1 人の書き手に対応し、データは 80% を学習用、20% をテスト用に分割します。ラベルは数字・英大文字・英小文字の 62 クラスです。
 
+### 比較手法（NIST 上のベースライン）
+
+マルチセンター連合学習と同じデータ・CNN・クライアント分割で、以下のベースラインを実行できます。
+
+| 手法 | コマンド |
+| --- | --- |
+| FedAvg ([McMahan et al., 2017](https://arxiv.org/abs/1602.05629)) | `uv run mcfl-train --num-centers 1 --pretrain-rounds 0` |
+| FedProx ([Li et al., 2020](https://arxiv.org/abs/1812.06127)) | `uv run mcfl-train --num-centers 1 --pretrain-rounds 0 --prox-mu 0.01` |
+| Local only | `uv run mcfl-train --method local` |
+| FedAvg + fine-tuning | `uv run mcfl-train --num-centers 1 --pretrain-rounds 0 --finetune-epochs 5` |
+
+- センターが 1 つなら、M-step は参加クライアントの重みの平均になり、FedAvg と一致する。ただし平均はサンプル数で重み付けしない単純平均（マルチセンター連合学習の M-step と同じ）。
+- マルチセンター連合学習は、`--rounds` とは別に `--pretrain-rounds` ラウンドの FedAvg 事前学習と、全クライアントによる 1 回のローカル学習（K-Means 用）を行う。通信量を揃えて比較する場合は、FedAvg の `--rounds` をその分増やす。
+- Local only は通信せず、`--frac` によらず毎ラウンド全クライアントが自分のモデルを `--local-epochs` エポック学習し、自分のテストデータで評価する。`--num-centers` と `--pretrain-rounds` は無視される。
+- `--finetune-epochs` はマルチセンター連合学習とも組み合わせられる（各クライアントが所属センターのモデルから fine-tuning する）。
+
 ### 結果の可視化
 
 ```bash
@@ -120,7 +136,7 @@ MNIST 上で FedAvg ([McMahan et al., 2017](https://arxiv.org/abs/1602.05629)) �
 
 ## ログ出力
 
-実験ごとに `./logs/<YYYYmmdd_HHMMSS>_K<num_centers>_s<seed>/` が作られ（同名がある場合は末尾に `_1`, `_2`, ... が付きます）、以下のファイルが保存されます。
+実験ごとに `./logs/<YYYYmmdd_HHMMSS>_K<num_centers>_s<seed>/` が作られ（`--method local` では末尾に `_local` が付き、同名がある場合は末尾に `_1`, `_2`, ... が付きます）、以下のファイルが保存されます。
 
 | ファイル | 内容 |
 | --- | --- |
@@ -140,7 +156,7 @@ MNIST 上で FedAvg ([McMahan et al., 2017](https://arxiv.org/abs/1602.05629)) �
 
 | ファイル | 役割 |
 | --- | --- |
-| [src/mcfl/train.py](src/mcfl/train.py) | マルチセンター連合学習のエントリーポイント（`mcfl-train`） |
+| [src/mcfl/train.py](src/mcfl/train.py) | マルチセンター連合学習と Local only のエントリーポイント（`mcfl-train`） |
 | [src/mcfl/config.py](src/mcfl/config.py) | 設定とコマンドライン引数 |
 | [src/mcfl/dataset.py](src/mcfl/dataset.py) | NIST データの読み込みとクライアントへの分割 |
 | [src/mcfl/model.py](src/mcfl/model.py) | CNN モデル |
@@ -151,6 +167,6 @@ MNIST 上で FedAvg ([McMahan et al., 2017](https://arxiv.org/abs/1602.05629)) �
 | [app.py](app.py) | Streamlit ダッシュボード |
 | [scripts/setup_data.py](scripts/setup_data.py) | NIST データのダウンロード |
 | [scripts/cleanup_logs.py](scripts/cleanup_logs.py) | 未完了ログの削除 |
-| [baselines/fedavg.py](baselines/fedavg.py) | MNIST での FedAvg ベースライン |
+| [baselines/fedavg.py](baselines/fedavg.py) | MNIST での FedAvg ベースライン（NIST 上の比較は上記の「比較手法」を参照） |
 
 いずれのコマンドもプロジェクトルートで実行してください（`./data` と `./logs` はカレントディレクトリからの相対パスです）。
