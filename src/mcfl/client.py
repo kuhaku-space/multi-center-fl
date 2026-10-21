@@ -40,6 +40,7 @@ class Client:
         self.device = torch.device(config.device)
         self.criterion = nn.CrossEntropyLoss()
         self.writer_id = dataset.writer_id
+        self.group = dataset.group
 
         # --- データの分割 (80% Train, 20% Test) ---
         total_len = len(dataset)

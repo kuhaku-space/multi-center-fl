@@ -64,6 +64,8 @@ uv run mcfl-train
 | `--max-writers` | `100` | 使用する書き手（クライアント）の最大数 |
 | `--max-imgs-per-writer` | `100` | 書き手 1 人あたりの最大画像数 |
 | `--noniid-type` | `writer` | Non-IID 分割方法。`writer`: 書き手ごとの自然な分割、`dirichlet`: Dirichlet 分布でクラス分布を偏らせる |
+| `--cluster-shift` | `none` | 正解のあるクラスタを人工的に作る変換。クライアントを `--num-groups` 個のグループにランダムに分け、グループ 0 以外に変換を加える（`rotation`: グループ g の画像を 90g 度回転、`label`: グループごとに固定したランダムな置換でラベルを入れ替える） |
+| `--num-groups` | `4` | `--cluster-shift` のグループ数（`rotation` は 4 まで） |
 | `--assignment` | `distance` | E-step の割り当て方法（`distance`: 学習後の重みに最も近いセンター、`loss`: 損失が最小のセンター） |
 | `--prox-mu` | `0` | ローカル学習で損失に加える近接項 (μ/2)‖w − w_center‖² の係数（論文の Eq. 7）。`0` で無効 |
 | `--pretrain-rounds` | `5` | センター初期化前の FedAvg 事前学習ラウンド数（`0` でランダム初期化） |
@@ -153,7 +155,7 @@ MNIST 上で FedAvg ([McMahan et al., 2017](https://arxiv.org/abs/1602.05629)) �
 | `summary.json` | 終了状態（`completed` / `failed` / `interrupted`）、実行時間、最終ラウンドと最高精度のラウンドの指標、失敗時のトレースバック |
 | `train.log` | コンソールに出力されたログ（例外のトレースバックを含む） |
 | `log.csv` | ラウンドごとの学習損失・検証損失・精度（`Accuracy`: サンプル数で重み付けした micro、`Macro Accuracy`: クライアントごとの精度の平均）・実行時間（合計、学習、評価）・各センターの所属クライアント数・センターごとの精度と検証損失 |
-| `clients.csv` | 各クライアントの学習データ数・テストデータ数・K-Means による初期クラスタ（`Init Center`、事前学習時のみ） |
+| `clients.csv` | 各クライアントの学習データ数・テストデータ数・K-Means による初期クラスタ（`Init Center`、事前学習時のみ）・正解のグループ（`Group`、`--cluster-shift` 指定時のみ） |
 | `client_round.csv` | 縦持ち形式。ラウンドごとに参加したクライアントの学習を始めたセンター (`Start Center`)、割り当てたセンター (`Center`)、割り当ての根拠（`loss`: 各センターへの割り当て確率 `P_k` とエントロピー、`distance`: 各センターとの距離 `D_k`、`cfl`: 更新のノルム `Update Norm`）、学習損失 |
 | `client_eval.csv` | 縦持ち形式。ラウンドごと・クライアントごとの評価結果（評価に使ったセンター、精度、検証損失、テストデータ数） |
 | `client_allocation.csv` | ラウンドごとの各クライアントの所属センター（行: ラウンド、列: クライアント） |

@@ -33,6 +33,8 @@ class NistWriterDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
         device: str = "cpu",
     ):
         self.writer_id = writer_id
+        # 人工的なクラスタのグループ番号（apply_cluster_shift で設定。なければ None）
+        self.group: int | None = None
 
         loaded_images = []
         loaded_labels = []
@@ -128,8 +130,13 @@ class NistDataManager:
             writers_data.items(), key=lambda x: len(x[1][0]), reverse=True
         )
         if self.cfg.noniid_type == "dirichlet":
-            return self._create_dirichlet_datasets(sorted_writers)
-        return self._create_datasets(sorted_writers)
+            datasets = self._create_dirichlet_datasets(sorted_writers)
+        else:
+            datasets = self._create_datasets(sorted_writers)
+
+        if self.cfg.cluster_shift != "none":
+            apply_cluster_shift(datasets, self.cfg)
+        return datasets
 
     @staticmethod
     def _parse_mit_files_in_dir(target_dir: Path, label: int, writers_data: WriterData):
@@ -257,3 +264,32 @@ class NistDataManager:
             f"Prepared {len(datasets)} Dirichlet-partitioned datasets (One writer per client)."
         )
         return datasets
+
+
+def apply_cluster_shift(datasets: list[NistWriterDataset], config: Config):
+    """
+    クライアントを num_groups 個のグループにランダムに分け、グループごとに異なる変換を
+    データに加えて、正解のあるクラスタ構造を作る（グループ 0 は変換しない）
+
+    - rotation: グループ g の画像を 90g 度回転する（IFCA の Rotated MNIST と同様）
+    - label: グループ g のラベルを、グループごとに固定したランダムな置換で入れ替える
+      （CFL のラベル置換と同様）
+    """
+    rng = np.random.default_rng(config.seed)
+    groups = rng.permutation(len(datasets)) % config.num_groups
+    perms = [torch.arange(config.num_classes)] + [
+        torch.from_numpy(rng.permutation(config.num_classes))
+        for _ in range(1, config.num_groups)
+    ]
+
+    for ds, g in zip(datasets, groups.tolist(), strict=True):
+        ds.group = g
+        if len(ds) == 0:
+            continue
+        if config.cluster_shift == "rotation":
+            ds.data = torch.rot90(ds.data, k=g, dims=(2, 3))
+        else:
+            ds.targets = perms[g].to(ds.targets.device)[ds.targets]
+
+    sizes = ", ".join(f"G{g}: {(groups == g).sum()}" for g in range(config.num_groups))
+    logger.info(f"Applied {config.cluster_shift} shift. [{sizes}]")

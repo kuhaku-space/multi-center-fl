@@ -93,6 +93,8 @@ class ExperimentLogger:
         )
         if init_centers is not None:
             df["Init Center"] = init_centers
+        if clients and clients[0].group is not None:
+            df["Group"] = [c.group for c in clients]
         df.to_csv(self.save_dir / "clients.csv", index=False)
         # 割り当ての列は全クライアントで固定（未参加のラウンドは空欄になる）
         self.allocation_columns = ["Round"] + sorted(df["Writer ID"])

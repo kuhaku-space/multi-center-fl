@@ -30,6 +30,9 @@ class Config:
     data_root: str = "./data/nist/extracted"
     noniid_type: str = "writer"  # "writer" or "dirichlet"
     alpha: float = 0.5  # Dirichlet concentration parameter
+    # 正解のあるクラスタを作る変換（none / rotation / label）と、そのグループ数
+    cluster_shift: str = "none"
+    num_groups: int = 4
 
     # EM algorithm設定 (Multi-Center FL paper)
     # E-step の割り当て方法。distance: 学習後の重みに最も近いセンター（論文の Eq. 8）、
@@ -132,6 +135,19 @@ class Config:
             help="Dirichlet concentration parameter (smaller alpha = more non-IID)",
         )
         parser.add_argument(
+            "--cluster-shift",
+            type=str,
+            default=d.cluster_shift,
+            choices=["none", "rotation", "label"],
+            help="Split clients into groups with a group-specific shift to create ground-truth clusters",
+        )
+        parser.add_argument(
+            "--num-groups",
+            type=int,
+            default=d.num_groups,
+            help="Number of ground-truth groups for --cluster-shift",
+        )
+        parser.add_argument(
             "--assignment",
             type=str,
             default=d.assignment,
@@ -204,6 +220,11 @@ class Config:
         )
 
         config = cls(**vars(parser.parse_args()))
+
+        if config.num_groups < 1:
+            parser.error("--num-groups must be at least 1")
+        if config.cluster_shift == "rotation" and config.num_groups > 4:
+            parser.error("--cluster-shift rotation supports at most 4 groups")
 
         # local ではセンターを使わない。ログの集計に合わせて 1 つのセンターとして扱う
         if config.method == "local":
