@@ -16,6 +16,7 @@ import torch
 
 from mcfl.client import Client
 from mcfl.config import Config
+from mcfl.server import ClientEval, summarize
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,8 @@ class ExperimentLogger:
         self.log_csv = self.save_dir / "log.csv"
         self.allocation_csv = self.save_dir / "client_allocation.csv"
         self.client_round_csv = self.save_dir / "client_round.csv"
+        self.client_eval_csv = self.save_dir / "client_eval.csv"
+        self.num_centers = config.num_centers
         self.allocation_columns = ["Round"]
         self.last_record: dict | None = None
         self.best_record: dict | None = None
@@ -91,17 +94,26 @@ class ExperimentLogger:
         val_loss: float,
         accuracy: float,
         center_counts: dict[int, int],
-        elapsed_time: float,
+        train_time: float,
+        eval_time: float,
+        eval_results: list[ClientEval],
     ):
         record = {
             "Round": round_num,
             "Train Loss": train_loss,
             "Val Loss": val_loss,
             "Accuracy": accuracy,
-            "Time": elapsed_time,
+            "Time": train_time + eval_time,
+            "Train Time": train_time,
+            "Eval Time": eval_time,
         }
         for k, v in center_counts.items():
             record[f"Center_{k}_Clients"] = v
+        # 評価時にそのセンターが選ばれたクライアントだけで集計した指標
+        for k in range(self.num_centers):
+            acc_k, loss_k = summarize([r for r in eval_results if r.center == k])
+            record[f"Center_{k}_Accuracy"] = acc_k
+            record[f"Center_{k}_Val Loss"] = loss_k
 
         self.last_record = record
         if not math.isnan(accuracy) and (
@@ -137,6 +149,25 @@ class ExperimentLogger:
         record = {"Round": round_num, **allocations}
         df = pd.DataFrame([record]).reindex(columns=self.allocation_columns)
         self._append_csv(self.allocation_csv, df)
+
+    def save_client_evals(self, round_num: int, eval_results: list[ClientEval]):
+        """クライアントごとの評価結果（評価に使ったセンター・精度・損失）を保存する"""
+        if not eval_results:
+            return
+        df = pd.DataFrame(
+            [
+                {
+                    "Round": round_num,
+                    "Writer ID": r.writer_id,
+                    "Center": r.center,
+                    "Accuracy": 100 * r.correct / r.samples,
+                    "Val Loss": r.loss_sum / r.samples,
+                    "Test Samples": r.samples,
+                }
+                for r in eval_results
+            ]
+        )
+        self._append_csv(self.client_eval_csv, df)
 
     def _write_summary(self, status: str, exc: BaseException | None):
         finished_at = datetime.now()

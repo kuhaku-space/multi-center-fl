@@ -1,3 +1,6 @@
+import math
+from dataclasses import dataclass
+
 import torch
 from torch import nn
 
@@ -7,6 +10,27 @@ from mcfl.model import SimpleCNN, compute_losses
 
 # 無視できる寄与とみなす割り当て確率の閾値
 MIN_WEIGHT = 1e-6
+
+
+@dataclass
+class ClientEval:
+    """1クライアントのテストデータに対する評価結果"""
+
+    writer_id: str
+    center: int  # 評価に使ったセンター（損失が最小のもの）
+    correct: int
+    samples: int
+    loss_sum: float
+
+
+def summarize(results: list[ClientEval]) -> tuple[float, float]:
+    """評価結果をサンプル数で重み付けして集計し、(精度[%], 平均損失) を返す（対象がなければ NaN）"""
+    total_samples = sum(r.samples for r in results)
+    if total_samples == 0:
+        return math.nan, math.nan
+    total_correct = sum(r.correct for r in results)
+    total_loss = sum(r.loss_sum for r in results)
+    return 100 * total_correct / total_samples, total_loss / total_samples
 
 
 # --- Server 定義 ---
@@ -45,35 +69,35 @@ class Server:
             }
             model.load_state_dict(averaged)
 
-    def evaluate(self, clients: list[Client]) -> tuple[float, float]:
+    def evaluate(self, clients: list[Client]) -> list[ClientEval]:
         """各クライアントのテストデータで、損失が最小のセンターを選んで評価する"""
-        total_correct = 0
-        total_samples = 0
-        total_loss = 0.0
-
+        results = []
         for client in clients:
             if client.test_loader is None:
                 continue
 
-            best_model = self._select_best_model(client.test_loader)
-            if best_model is None:
+            center = self._select_best_center(client.test_loader)
+            if center is None:
                 continue
 
-            best_model.eval()
+            model = self.models[center]
+            model.eval()
+            correct, samples, loss_sum = 0, 0, 0.0
             with torch.no_grad():
                 for x, y in client.test_loader:
                     x, y = x.to(self.device), y.to(self.device)
-                    out = best_model(x)
-                    total_loss += self.criterion(out, y).item() * x.size(0)
-                    total_correct += (out.argmax(dim=1) == y).sum().item()
-                    total_samples += y.size(0)
+                    out = model(x)
+                    loss_sum += self.criterion(out, y).item() * x.size(0)
+                    correct += (out.argmax(dim=1) == y).sum().item()
+                    samples += y.size(0)
+            results.append(
+                ClientEval(client.writer_id, center, correct, samples, loss_sum)
+            )
 
-        if total_samples == 0:
-            return 0.0, 0.0
-        return 100 * total_correct / total_samples, total_loss / total_samples
+        return results
 
-    def _select_best_model(self, loader) -> nn.Module | None:
-        """1バッチの損失が最小のモデルを選ぶ（本来はValidation setを使うべきだが簡易的に）"""
+    def _select_best_center(self, loader) -> int | None:
+        """1バッチの損失が最小のセンターを選ぶ（本来はValidation setを使うべきだが簡易的に）"""
         try:
             x, y = next(iter(loader))
         except StopIteration:
@@ -81,4 +105,4 @@ class Server:
 
         x, y = x.to(self.device), y.to(self.device)
         losses = compute_losses(self.models, x, y, self.criterion)
-        return self.models[losses.index(min(losses))]
+        return losses.index(min(losses))

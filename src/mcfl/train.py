@@ -11,7 +11,7 @@ from mcfl.client import Client
 from mcfl.config import Config
 from mcfl.dataset import NistDataManager
 from mcfl.experiment_logger import LOG_FORMAT, ExperimentLogger
-from mcfl.server import Server
+from mcfl.server import Server, summarize
 
 logger = logging.getLogger(__name__)
 
@@ -81,22 +81,34 @@ def run_round(
         # 最大確率のセンターを割り当てとして集計
         center_counts[probs.index(max(probs))] += 1
 
-    # 集約・評価
+    # 集約
     server.aggregate(updates)
-    acc, val_loss = server.evaluate(clients)
     avg_train_loss = float(np.mean([loss for _, _, loss in updates]))
+    train_time = time.time() - start_time
 
-    elapsed_time = time.time() - start_time
+    # 評価
+    eval_start = time.time()
+    eval_results = server.evaluate(clients)
+    acc, val_loss = summarize(eval_results)
+    eval_time = time.time() - eval_start
 
     counts_str = ", ".join(f"C{k}: {v}" for k, v in center_counts.items())
     logger.info(
-        f"Round {round_num:02d} | Time: {elapsed_time:.2f}s | Train: {avg_train_loss:.4f} | Val: {val_loss:.4f} | Acc: {acc:.2f}% | [{counts_str}]"
+        f"Round {round_num:02d} | Time: {train_time + eval_time:.2f}s | Train: {avg_train_loss:.4f} | Val: {val_loss:.4f} | Acc: {acc:.2f}% | [{counts_str}]"
     )
 
     exp_logger.save_round_log(
-        round_num, avg_train_loss, val_loss, acc, center_counts, elapsed_time
+        round_num,
+        avg_train_loss,
+        val_loss,
+        acc,
+        center_counts,
+        train_time,
+        eval_time,
+        eval_results,
     )
     exp_logger.save_client_rounds(round_num, participations)
+    exp_logger.save_client_evals(round_num, eval_results)
 
 
 # --- メイン実行 ---
