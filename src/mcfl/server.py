@@ -8,9 +8,6 @@ from mcfl.client import Client
 from mcfl.config import Config
 from mcfl.model import SimpleCNN, compute_losses
 
-# 無視できる寄与とみなす割り当て確率の閾値
-MIN_WEIGHT = 1e-6
-
 
 @dataclass
 class ClientEval:
@@ -48,24 +45,27 @@ class Server:
         self, updates: list[tuple[list[float], dict[str, torch.Tensor], float]]
     ):
         """
-        M-step: 確率に基づく重み付き集約
+        M-step: 各センターを、そのセンターに割り当てられたクライアントの重みの平均で更新する
 
-        各クライアントの寄与は、そのクライアントのセンターへの割り当て確率で重み付けされる
+        割り当ては確率が最大のセンター（= クライアントが学習に使ったセンター）とする hard な割り当て。
+        割り当てられたクライアントがいないセンターは前のモデルを維持する。
+
+        Note:
+            確率で重み付けして全センターに混ぜると、確率が一様に近いときに全センターが
+            同じ平均を受け取り、数ラウンドで同一のモデルに収束してしまう。
         """
         for center_idx, model in enumerate(self.models):
-            contributions = [
-                (probs[center_idx], weights)
+            assigned = [
+                weights
                 for probs, weights, _ in updates
-                if probs[center_idx] > MIN_WEIGHT
+                if probs.index(max(probs)) == center_idx
             ]
-            if not contributions:
+            if not assigned:
                 continue
 
-            total_weight = sum(w for w, _ in contributions)
             averaged = {
-                key: sum(w * weights[key] for w, weights in contributions)
-                / total_weight
-                for key in contributions[0][1]
+                key: sum(weights[key] for weights in assigned) / len(assigned)
+                for key in assigned[0]
             }
             model.load_state_dict(averaged)
 
