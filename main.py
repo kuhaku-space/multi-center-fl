@@ -39,10 +39,7 @@ def main():
         logger.info(f"GPU Name: {gpu_name}")
         logger.info(f"CUDA Version: {torch.version.cuda}")
 
-    # 1. ログ管理初期化
-    exp_logger = ExperimentLogger(config)
-
-    # 2. データ準備
+    # 1. データ準備
     data_manager = NistDataManager(config)
     datasets = data_manager.prepare_data()
 
@@ -50,9 +47,12 @@ def main():
         logger.error("No datasets created. Exiting.")
         return
 
-    # 3. Client / Server 初期化
+    # 2. Client / Server 初期化
     clients = [Client(ds, config) for ds in datasets]
     server = Server(config)
+
+    # 3. ログ管理初期化
+    exp_logger = ExperimentLogger(config, [c.writer_id for c in clients])
 
     # 各ユーザーのデータ数分布を出力
     all_counts = [len(c.train_dataset) + len(c.test_dataset) for c in clients]
