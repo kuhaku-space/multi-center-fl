@@ -80,6 +80,8 @@ def render_kpis(log_df: pd.DataFrame):
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Round", int(latest["Round"]))
     col2.metric("Accuracy", f"{latest['Accuracy']:.2f}%")
+    if "Macro Accuracy" in log_df.columns:
+        col2.caption(f"Macro: {latest['Macro Accuracy']:.2f}%")
     col3.metric("Train Loss", f"{latest['Train Loss']:.4f}")
     col4.metric("Val Loss", f"{latest['Val Loss']:.4f}")
 
@@ -91,8 +93,9 @@ def render_training_metrics(log_df: pd.DataFrame):
     with tab1:
         c1, c2 = st.columns(2)
         with c1:
+            acc_cols = [c for c in ("Accuracy", "Macro Accuracy") if c in log_df]
             fig_acc = px.line(
-                log_df, x="Round", y="Accuracy", title="Global Accuracy", markers=True
+                log_df, x="Round", y=acc_cols, title="Global Accuracy", markers=True
             )
             st.plotly_chart(fig_acc, width="stretch")
         with c2:

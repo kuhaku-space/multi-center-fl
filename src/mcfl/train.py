@@ -12,7 +12,7 @@ from mcfl.config import Config
 from mcfl.dataset import NistDataManager
 from mcfl.experiment_logger import LOG_FORMAT, ExperimentLogger
 from mcfl.init_centers import initialize_centers
-from mcfl.server import Server, summarize
+from mcfl.server import Server, macro_accuracy, summarize
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +92,7 @@ def run_round(
 
     counts_str = ", ".join(f"C{k}: {v}" for k, v in center_counts.items())
     logger.info(
-        f"Round {round_num:02d} | Time: {train_time + eval_time:.2f}s | Train: {avg_train_loss:.4f} | Val: {val_loss:.4f} | Acc: {acc:.2f}% | [{counts_str}]"
+        f"Round {round_num:02d} | Time: {train_time + eval_time:.2f}s | Train: {avg_train_loss:.4f} | Val: {val_loss:.4f} | Acc: {acc:.2f}% | Macro: {macro_accuracy(eval_results):.2f}% | [{counts_str}]"
     )
 
     exp_logger.save_round_log(

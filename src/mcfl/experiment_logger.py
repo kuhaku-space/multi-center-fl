@@ -18,7 +18,7 @@ from torch import nn
 
 from mcfl.client import Client, ClientUpdate
 from mcfl.config import Config
-from mcfl.server import ClientEval, summarize
+from mcfl.server import ClientEval, macro_accuracy, summarize
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +111,7 @@ class ExperimentLogger:
             "Train Loss": train_loss,
             "Val Loss": val_loss,
             "Accuracy": accuracy,
+            "Macro Accuracy": macro_accuracy(eval_results),
             "Time": train_time + eval_time,
             "Train Time": train_time,
             "Eval Time": eval_time,

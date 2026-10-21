@@ -35,6 +35,13 @@ def summarize(results: list[ClientEval]) -> tuple[float, float]:
     return 100 * total_correct / total_samples, total_loss / total_samples
 
 
+def macro_accuracy(results: list[ClientEval]) -> float:
+    """クライアントごとの精度[%]の単純平均（論文の macro accuracy）。対象がなければ NaN"""
+    if not results:
+        return math.nan
+    return sum(100 * r.correct / r.samples for r in results) / len(results)
+
+
 # --- Server 定義 ---
 class Server:
     def __init__(self, config: Config):
