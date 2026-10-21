@@ -40,6 +40,7 @@ class ExperimentLogger:
         self.config_file = self.save_dir / "config.json"
         self.log_csv = self.save_dir / "log.csv"
         self.allocation_csv = self.save_dir / "client_allocation.csv"
+        self.client_round_csv = self.save_dir / "client_round.csv"
         self.allocation_columns = ["Round"]
         self.last_record: dict | None = None
         self.best_record: dict | None = None
@@ -71,8 +72,17 @@ class ExperimentLogger:
         self._file_handler.close()
 
     def save_clients(self, clients: list[Client]):
-        # 列は全クライアントで固定（未参加のラウンドは空欄になる）
-        self.allocation_columns = ["Round"] + sorted(c.writer_id for c in clients)
+        """各クライアントのデータ数を保存する"""
+        df = pd.DataFrame(
+            {
+                "Writer ID": [c.writer_id for c in clients],
+                "Train Samples": [len(c.train_dataset) for c in clients],
+                "Test Samples": [len(c.test_dataset) for c in clients],
+            }
+        )
+        df.to_csv(self.save_dir / "clients.csv", index=False)
+        # 割り当ての列は全クライアントで固定（未参加のラウンドは空欄になる）
+        self.allocation_columns = ["Round"] + sorted(df["Writer ID"])
 
     def save_round_log(
         self,
@@ -101,8 +111,29 @@ class ExperimentLogger:
 
         self._append_csv(self.log_csv, pd.DataFrame([record]))
 
-    def save_allocations(self, round_num: int, allocations: dict[str, int]):
-        """allocations: {"writerA": 0, ...}（そのラウンドに参加したクライアントの所属センター）"""
+    def save_client_rounds(
+        self, round_num: int, participations: list[tuple[str, list[float], float]]
+    ):
+        """
+        そのラウンドに参加したクライアントの割り当て確率と学習損失を保存する
+
+        participations: [(writer_id, センターごとの割り当て確率, 学習損失), ...]
+        """
+        rows = []
+        for writer_id, probs, loss in participations:
+            row = {
+                "Round": round_num,
+                "Writer ID": writer_id,
+                "Center": probs.index(max(probs)),
+            }
+            row |= {f"P_{k}": p for k, p in enumerate(probs)}
+            row["Entropy"] = -sum(p * math.log(p) for p in probs if p > 0)
+            row["Train Loss"] = loss
+            rows.append(row)
+        self._append_csv(self.client_round_csv, pd.DataFrame(rows))
+
+        # ダッシュボードのヒートマップ用（行: ラウンド、列: クライアント）
+        allocations = {row["Writer ID"]: row["Center"] for row in rows}
         record = {"Round": round_num, **allocations}
         df = pd.DataFrame([record]).reindex(columns=self.allocation_columns)
         self._append_csv(self.allocation_csv, df)

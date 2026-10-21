@@ -63,7 +63,7 @@ def run_round(
     sampled_indices = np.random.choice(range(len(clients)), num_sampled, replace=False)
 
     updates = []
-    allocations: dict[str, int] = {}
+    participations: list[tuple[str, list[float], float]] = []
     center_counts = dict.fromkeys(range(config.num_centers), 0)
 
     # 選択されたクライアントで学習
@@ -76,11 +76,10 @@ def run_round(
         client = clients[idx]
         probs, weights, loss = client.participate(server.models)
         updates.append((probs, weights, loss))
+        participations.append((client.writer_id, probs, loss))
 
-        # 最大確率のセンターを割り当てとして記録
-        best_center = probs.index(max(probs))
-        allocations[client.writer_id] = best_center
-        center_counts[best_center] += 1
+        # 最大確率のセンターを割り当てとして集計
+        center_counts[probs.index(max(probs))] += 1
 
     # 集約・評価
     server.aggregate(updates)
@@ -97,7 +96,7 @@ def run_round(
     exp_logger.save_round_log(
         round_num, avg_train_loss, val_loss, acc, center_counts, elapsed_time
     )
-    exp_logger.save_allocations(round_num, allocations)
+    exp_logger.save_client_rounds(round_num, participations)
 
 
 # --- メイン実行 ---
