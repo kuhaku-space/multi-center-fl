@@ -1,14 +1,21 @@
 import copy
 
+import numpy as np
 import torch
 from torch import nn, optim
 from torch.utils.data import DataLoader, random_split
 
 from mcfl.config import Config
 from mcfl.dataset import NistWriterDataset
-from mcfl.model import compute_losses
+from mcfl.model import StateDict, compute_losses
 
 TRAIN_RATIO = 0.8
+
+
+def sample_clients(num_clients: int, frac: float) -> np.ndarray:
+    """そのラウンドに参加するクライアントのインデックスをランダムに選ぶ"""
+    num_sampled = max(int(frac * num_clients), 1)
+    return np.random.choice(num_clients, num_sampled, replace=False)
 
 
 # --- Client 定義 ---
@@ -57,7 +64,7 @@ class Client:
 
     def participate(
         self, global_models: list[nn.Module]
-    ) -> tuple[list[float], dict[str, torch.Tensor], float]:
+    ) -> tuple[list[float], StateDict, float]:
         """
         E-step: ソフト割り当て確率を計算し、最良モデルで学習
 
@@ -65,10 +72,14 @@ class Client:
             tuple: (確率リスト, 更新後の重み, 平均損失)
         """
         probs = self._compute_center_probabilities(global_models)
-        best_idx = probs.index(max(probs))
-        model = copy.deepcopy(global_models[best_idx])
-        avg_loss = self._train(model)
-        return probs, model.state_dict(), avg_loss
+        weights, avg_loss = self.train_from(global_models[probs.index(max(probs))])
+        return probs, weights, avg_loss
+
+    def train_from(self, model: nn.Module) -> tuple[StateDict, float]:
+        """model のコピーをローカル学習し、(更新後の重み, 平均損失) を返す"""
+        local_model = copy.deepcopy(model)
+        avg_loss = self._train(local_model)
+        return local_model.state_dict(), avg_loss
 
     def _train(self, model: nn.Module) -> float:
         """ローカル学習を行い、平均損失を返す"""

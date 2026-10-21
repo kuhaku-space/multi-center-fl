@@ -6,7 +6,7 @@ from torch import nn
 
 from mcfl.client import Client
 from mcfl.config import Config
-from mcfl.model import SimpleCNN, compute_losses
+from mcfl.model import SimpleCNN, StateDict, average_weights, compute_losses
 
 
 @dataclass
@@ -41,9 +41,7 @@ class Server:
         ]
         self.criterion = nn.CrossEntropyLoss()
 
-    def aggregate(
-        self, updates: list[tuple[list[float], dict[str, torch.Tensor], float]]
-    ):
+    def aggregate(self, updates: list[tuple[list[float], StateDict, float]]):
         """
         M-step: 各センターを、そのセンターに割り当てられたクライアントの重みの平均で更新する
 
@@ -60,14 +58,8 @@ class Server:
                 for probs, weights, _ in updates
                 if probs.index(max(probs)) == center_idx
             ]
-            if not assigned:
-                continue
-
-            averaged = {
-                key: sum(weights[key] for weights in assigned) / len(assigned)
-                for key in assigned[0]
-            }
-            model.load_state_dict(averaged)
+            if assigned:
+                model.load_state_dict(average_weights(assigned))
 
     def evaluate(self, clients: list[Client]) -> list[ClientEval]:
         """各クライアントのテストデータで、損失が最小のセンターを選んで評価する"""

@@ -1,6 +1,8 @@
 import torch
 from torch import nn
 
+StateDict = dict[str, torch.Tensor]
+
 
 # --- モデル定義 ---
 class SimpleCNN(nn.Module):
@@ -49,3 +51,8 @@ def compute_losses(
         model.eval()
         losses.append(criterion(model(x), y).item())
     return losses
+
+
+def average_weights(weights: list[StateDict]) -> StateDict:
+    """複数モデルの重みの単純平均"""
+    return {key: sum(w[key] for w in weights) / len(weights) for key in weights[0]}

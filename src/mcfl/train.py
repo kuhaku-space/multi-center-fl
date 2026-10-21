@@ -7,7 +7,7 @@ import torch
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 
-from mcfl.client import Client
+from mcfl.client import Client, sample_clients
 from mcfl.config import Config
 from mcfl.dataset import NistDataManager
 from mcfl.experiment_logger import LOG_FORMAT, ExperimentLogger
@@ -58,9 +58,7 @@ def run_round(
 ):
     start_time = time.time()
 
-    # クライアントのランダムサンプリング
-    num_sampled = max(int(config.frac * len(clients)), 1)
-    sampled_indices = np.random.choice(range(len(clients)), num_sampled, replace=False)
+    sampled_indices = sample_clients(len(clients), config.frac)
 
     updates = []
     participations: list[tuple[str, list[float], float]] = []
