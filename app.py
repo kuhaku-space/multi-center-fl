@@ -24,6 +24,7 @@ def load_experiments():
     return [d.name for d in exps]
 
 
+@st.cache_data
 def load_data(exp_id):
     """指定された実験IDのデータを読み込む"""
     exp_path = LOG_DIR / exp_id
@@ -159,6 +160,7 @@ def main():
         st.plotly_chart(fig_cluster, width="stretch")
 
     # 3. クライアント所属ヒートマップ (改良版)
+    num_centers = config.get("num_centers", 5)
     st.subheader("🗺️ Client Allocation Heatmap")
     if not alloc_df.empty:
         st.markdown("""
@@ -210,8 +212,8 @@ def main():
             yaxis_title="Writer ID (Sorted by Final Center)",
             coloraxis_colorbar=dict(
                 title="Center ID",
-                tickvals=[0, 1, 2, 3, 4],
-                ticktext=["C0", "C1", "C2", "C3", "C4"],
+                tickvals=list(range(num_centers)),
+                ticktext=[f"C{i}" for i in range(num_centers)],
             ),
         )
 
