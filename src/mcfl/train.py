@@ -50,6 +50,24 @@ def log_data_summary(clients: list[Client]):
     logger.info("========================================")
 
 
+def sample_round_clients(
+    clients: list[Client], server: Server, config: Config
+) -> list[int]:
+    """そのラウンドに参加するクライアントのインデックスを選ぶ"""
+    if config.sampling == "global":
+        return list(sample_clients(len(clients), config.frac))
+
+    # 所属センターごとに frac ずつ抽出し、小さいクラスタのセンターにも毎ラウンド更新が入るようにする
+    groups: dict[int | None, list[int]] = {}
+    for i, client in enumerate(clients):
+        groups.setdefault(server.assignments.get(client.writer_id), []).append(i)
+    return [
+        members[j]
+        for members in groups.values()
+        for j in sample_clients(len(members), config.frac)
+    ]
+
+
 def run_round(
     round_num: int,
     clients: list[Client],
@@ -59,7 +77,7 @@ def run_round(
 ):
     start_time = time.time()
 
-    sampled_indices = sample_clients(len(clients), config.frac)
+    sampled_indices = sample_round_clients(clients, server, config)
 
     updates: list[ClientUpdate] = []
     center_counts = dict.fromkeys(range(config.num_centers), 0)

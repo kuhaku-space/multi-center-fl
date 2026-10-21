@@ -16,6 +16,9 @@ class Config:
     batch_size: int = 32
     lr: float = 0.05
     frac: float = 0.1  # クライアントのサンプリング割合
+    # サンプリング方法。global: 全体から frac を抽出、
+    # center: 所属センターごとに frac ずつ抽出（distance モードのみ）
+    sampling: str = "global"
     seed: int = 42  # 再現性のためのシード
 
     # データ設定
@@ -71,6 +74,13 @@ class Config:
             type=float,
             default=d.frac,
             help="Fraction of clients to sample per round",
+        )
+        parser.add_argument(
+            "--sampling",
+            type=str,
+            default=d.sampling,
+            choices=["global", "center"],
+            help="Client sampling (global: frac of all clients, center: frac of each center's clients)",
         )
         parser.add_argument(
             "--seed", type=int, default=d.seed, help="Random seed for reproducibility"
@@ -146,6 +156,10 @@ class Config:
         )
 
         config = cls(**vars(parser.parse_args()))
+
+        # loss モードには所属センターがないため、センターごとに抽出できない
+        if config.sampling == "center" and config.assignment != "distance":
+            parser.error("--sampling center requires --assignment distance")
 
         # データはデバイス上に置かれるため、CUDA使用時の pin_memory はエラーになる。
         # また CUDA が使えない環境では pin_memory は意味がない。
