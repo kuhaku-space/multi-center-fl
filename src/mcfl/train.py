@@ -7,6 +7,7 @@ import torch
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 
+from mcfl.cfl import CFLServer
 from mcfl.client import Client, ClientUpdate, sample_clients
 from mcfl.config import Config
 from mcfl.dataset import NistDataManager
@@ -90,7 +91,9 @@ def run_round(
         ncols=80,
     ):
         client = clients[idx]
-        if config.assignment == "distance":
+        if isinstance(server, CFLServer):
+            update = server.participate(client)
+        elif config.assignment == "distance":
             update = server.participate_by_distance(client)
         else:
             update = client.participate(server.models)
@@ -218,7 +221,7 @@ def train(config: Config, exp_logger: ExperimentLogger):
         train_local(clients, config, exp_logger)
         return
 
-    server = Server(config)
+    server = CFLServer(config, clients) if config.method == "cfl" else Server(config)
 
     # 3. センターの初期化
     init_centers = None

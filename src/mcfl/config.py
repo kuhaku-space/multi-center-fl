@@ -10,7 +10,8 @@ logger = logging.getLogger(__name__)
 @dataclass
 class Config:
     # 基本設定
-    # mcfl: マルチセンター連合学習、local: 各クライアントが自分のデータだけで学習する（比較用）
+    # mcfl: マルチセンター連合学習、local: 各クライアントが自分のデータだけで学習する（比較用）、
+    # cfl: Clustered Federated Learning（比較用。num_centers はクラスタ数の上限）
     method: str = "mcfl"
     num_centers: int = 2
     rounds: int = 50
@@ -40,6 +41,10 @@ class Config:
     em_temperature: float = 1.0
     # センター初期化前の FedAvg 事前学習ラウンド数（0 ならランダム初期化）
     pretrain_rounds: int = 5
+    # CFL の分割条件: ラウンド数 > warmup かつ 更新の平均のノルム < eps1 かつ 更新のノルムの最大 > eps2
+    cfl_eps1: float = 0.4
+    cfl_eps2: float = 1.6
+    cfl_warmup_rounds: int = 20
     # 評価前に所属センターのモデルを各クライアントでローカル学習するエポック数（0 で無効）
     finetune_epochs: int = 0
 
@@ -66,8 +71,8 @@ class Config:
             "--method",
             type=str,
             default=d.method,
-            choices=["mcfl", "local"],
-            help="Training method (mcfl: multi-center FL, local: each client trains alone)",
+            choices=["mcfl", "local", "cfl"],
+            help="Training method (mcfl: multi-center FL, local: each client trains alone, cfl: clustered FL with --num-centers as the max clusters)",
         )
         parser.add_argument(
             "--num-centers", type=int, default=d.num_centers, help="Number of centers"
@@ -146,6 +151,24 @@ class Config:
             help="FedAvg rounds before initializing centers by K-Means (0: random init)",
         )
         parser.add_argument(
+            "--cfl-eps1",
+            type=float,
+            default=d.cfl_eps1,
+            help="CFL: split a cluster when the norm of its mean update is below this",
+        )
+        parser.add_argument(
+            "--cfl-eps2",
+            type=float,
+            default=d.cfl_eps2,
+            help="CFL: split a cluster when the max norm of its client updates is above this",
+        )
+        parser.add_argument(
+            "--cfl-warmup-rounds",
+            type=int,
+            default=d.cfl_warmup_rounds,
+            help="CFL: do not split clusters during these first rounds",
+        )
+        parser.add_argument(
             "--finetune-epochs",
             type=int,
             default=d.finetune_epochs,
@@ -186,6 +209,12 @@ class Config:
         if config.method == "local":
             config.num_centers = 1
             config.pretrain_rounds = 0
+
+        # CFL は1つのクラスタからランダム初期化で始め、分割に全メンバーの更新を使う
+        if config.method == "cfl":
+            config.pretrain_rounds = 0
+            if config.frac != 1.0:
+                parser.error("--method cfl requires --frac 1.0")
 
         # loss モードには所属センターがないため、センターごとに抽出できない
         if config.sampling == "center" and config.assignment != "distance":
