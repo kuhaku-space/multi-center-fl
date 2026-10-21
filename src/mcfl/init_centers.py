@@ -1,4 +1,5 @@
 import logging
+import math
 
 import numpy as np
 import torch
@@ -11,6 +12,8 @@ from mcfl.model import SimpleCNN, StateDict, average_weights, flatten_weights
 logger = logging.getLogger(__name__)
 
 KMEANS_MAX_ITERS = 100
+# 論文と同様、初期値を変えて20回クラスタリングし、クラスタ内距離が最小の結果を使う
+KMEANS_N_INIT = 20
 
 
 def initialize_centers(
@@ -19,12 +22,12 @@ def initialize_centers(
     """
     センターの初期値を作る
 
-    論文は「ランダム初期化からのクラスタリングを20回行い、クラスタ内距離が最小のものを使う」、
-    公式実装はランダムな初期クラスタと共通の初期モデルを使っており、以下は本実装独自の手順:
+    論文はランダム初期化からのクラスタリングを20回行い、クラスタ内距離が最小のものを使う。
+    何をクラスタリングするかは論文に書かれていないため、事前学習は本実装独自の手順:
 
     1. 共通モデルを FedAvg で pretrain_rounds ラウンド事前学習する
     2. 全クライアントが事前学習モデルからローカル学習する
-    3. 学習後の重み（事前学習モデルからの差分）を K-Means でクラスタリングし、
+    3. 学習後の重み（事前学習モデルからの差分）を K-Means（20回試行）でクラスタリングし、
        各クラスタに属するクライアントの重みの平均をセンターの初期値とする
 
     ランダム初期化のままだと、損失ベースの割り当てでは少し学習が進んだセンターが
@@ -72,11 +75,28 @@ def initialize_centers(
     return centers, labels
 
 
-def kmeans(x: torch.Tensor, k: int, seed: int) -> list[int]:
-    """k-means++ で初期化した K-Means。x: (N, D) の各行のクラスタ番号を返す"""
+def kmeans(
+    x: torch.Tensor, k: int, seed: int, n_init: int = KMEANS_N_INIT
+) -> list[int]:
+    """
+    k-means++ で初期化した K-Means を n_init 回行い、クラスタ内距離（各点から中心までの
+    二乗距離の和）が最小の結果について、x: (N, D) の各行のクラスタ番号を返す
+    """
     x = x.cpu()
     gen = torch.Generator().manual_seed(seed)
 
+    best_labels, best_inertia = None, math.inf
+    for _ in range(n_init):
+        labels, centroids = _kmeans_once(x, k, gen)
+        inertia = ((x - centroids[labels]) ** 2).sum().item()
+        if inertia < best_inertia:
+            best_labels, best_inertia = labels, inertia
+    return best_labels.tolist()
+
+
+def _kmeans_once(
+    x: torch.Tensor, k: int, gen: torch.Generator
+) -> tuple[torch.Tensor, torch.Tensor]:
     # k-means++: 既存の中心から遠い点ほど選ばれやすくする
     centroids = x[torch.randint(len(x), (1,), generator=gen)]
     for _ in range(1, k):
@@ -101,7 +121,7 @@ def kmeans(x: torch.Tensor, k: int, seed: int) -> list[int]:
             break
         labels = new_labels
 
-    return labels.tolist()
+    return labels, centroids
 
 
 def _cdist(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
