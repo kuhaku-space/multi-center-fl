@@ -18,18 +18,24 @@ def download_file(url, dest_path):
         return
 
     print(f"[Download] Downloading {url} ...")
+    # 中断時に不完全なファイルが残って次回スキップされないよう、一時ファイルに書き込む
+    tmp_path = dest_path + ".part"
     try:
-        r = requests.get(url, stream=True)
-        total = int(r.headers.get("content-length", 0))
-        with (
-            open(dest_path, "wb") as f,
-            tqdm(total=total, unit="B", unit_scale=True, ncols=80) as bar,
-        ):
-            for chunk in r.iter_content(chunk_size=8192):
-                f.write(chunk)
-                bar.update(len(chunk))
+        with requests.get(url, stream=True) as r:
+            r.raise_for_status()
+            total = int(r.headers.get("content-length", 0))
+            with (
+                open(tmp_path, "wb") as f,
+                tqdm(total=total, unit="B", unit_scale=True, ncols=80) as bar,
+            ):
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
+                    bar.update(len(chunk))
+        os.replace(tmp_path, dest_path)
         print("Done.")
     except Exception as e:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
         print(f"[Error] Failed to download {url}: {e}")
 
 
