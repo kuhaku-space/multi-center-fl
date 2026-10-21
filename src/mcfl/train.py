@@ -13,6 +13,7 @@ from mcfl.config import Config
 from mcfl.dataset import NistDataManager
 from mcfl.ditto import DittoServer
 from mcfl.experiment_logger import LOG_FORMAT, ExperimentLogger
+from mcfl.fedem import FedEMServer
 from mcfl.init_centers import initialize_centers
 from mcfl.model import SimpleCNN
 from mcfl.server import ClientEval, Server, macro_accuracy, summarize
@@ -94,7 +95,7 @@ def run_round(
         client = clients[idx]
         if config.method in ("cfl", "oracle"):
             update = server.participate_fixed(client)
-        elif isinstance(server, DittoServer):
+        elif isinstance(server, DittoServer | FedEMServer):
             update = server.participate(client)
         elif config.assignment == "distance":
             update = server.participate_by_distance(client)
@@ -230,6 +231,8 @@ def train(config: Config, exp_logger: ExperimentLogger):
         server = CFLServer(config, clients)
     elif config.method == "ditto":
         server = DittoServer(config, clients)
+    elif config.method == "fedem":
+        server = FedEMServer(config, clients)
     else:
         server = Server(config)
     if config.method == "oracle":

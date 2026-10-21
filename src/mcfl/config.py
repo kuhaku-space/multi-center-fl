@@ -13,7 +13,8 @@ class Config:
     # mcfl: マルチセンター連合学習、local: 各クライアントが自分のデータだけで学習する（比較用）、
     # cfl: Clustered Federated Learning（比較用。num_centers はクラスタ数の上限）、
     # oracle: 正解のグループ（cluster_shift）をセンターの所属に使う（比較用の上限）、
-    # ditto: Ditto（比較用。グローバルモデルへの近接項付きで個別モデルを学習する）
+    # ditto: Ditto（比較用。グローバルモデルへの近接項付きで個別モデルを学習する）、
+    # fedem: FedEM（比較用。num_centers 個のコンポーネントの混合比をクライアントごとに推定する）
     method: str = "mcfl"
     num_centers: int = 2
     rounds: int = 50
@@ -78,8 +79,8 @@ class Config:
             "--method",
             type=str,
             default=d.method,
-            choices=["mcfl", "local", "cfl", "oracle", "ditto"],
-            help="Training method (mcfl: multi-center FL, local: each client trains alone, cfl: clustered FL with --num-centers as the max clusters, oracle: centers from the ground-truth groups of --cluster-shift, ditto: personalized models regularized toward the global model)",
+            choices=["mcfl", "local", "cfl", "oracle", "ditto", "fedem"],
+            help="Training method (mcfl: multi-center FL, local: each client trains alone, cfl: clustered FL with --num-centers as the max clusters, oracle: centers from the ground-truth groups of --cluster-shift, ditto: personalized models regularized toward the global model, fedem: mixture of --num-centers components)",
         )
         parser.add_argument(
             "--num-centers", type=int, default=d.num_centers, help="Number of centers"
@@ -247,6 +248,10 @@ class Config:
             config.pretrain_rounds = 0
             if config.frac != 1.0:
                 parser.error("--method cfl requires --frac 1.0")
+
+        # FedEM はコンポーネントをランダム初期化する
+        if config.method == "fedem":
+            config.pretrain_rounds = 0
 
         # oracle は正解のグループごとに1つのセンターを持ち、所属は固定する
         if config.method == "oracle":

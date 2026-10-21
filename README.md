@@ -52,7 +52,7 @@ uv run mcfl-train
 
 | オプション | デフォルト | 説明 |
 | --- | --- | --- |
-| `--method` | `mcfl` | 学習方法（`mcfl`: マルチセンター連合学習、`local`: 各クライアントが自分のデータだけで学習する比較用の Local only、`cfl`: 比較用の CFL、`oracle`: 正解のグループをセンターの所属に使う比較用の上限、`ditto`: 比較用の Ditto） |
+| `--method` | `mcfl` | 学習方法（`mcfl`: マルチセンター連合学習、`local`: 各クライアントが自分のデータだけで学習する比較用の Local only、`cfl`: 比較用の CFL、`oracle`: 正解のグループをセンターの所属に使う比較用の上限、`ditto`: 比較用の Ditto、`fedem`: 比較用の FedEM） |
 | `--num-centers` | `2` | センター（グローバルモデル）の数 |
 | `--rounds` | `50` | 通信ラウンド数 |
 | `--local-epochs` | `5` | クライアントごとのローカルエポック数 |
@@ -101,6 +101,7 @@ uv run mcfl-train --num-centers 3 --rounds 100 --noniid-type dirichlet --alpha 0
 | IFCA ([Ghosh et al., 2020](https://arxiv.org/abs/2006.04088)) | `uv run mcfl-train --assignment loss --pretrain-rounds 0` |
 | CFL ([Sattler et al., 2020](https://arxiv.org/abs/1910.01991)) | `uv run mcfl-train --method cfl --frac 1.0 --num-centers 10` |
 | Ditto ([Li et al., 2021](https://arxiv.org/abs/2012.04221)) | `uv run mcfl-train --method ditto --ditto-lambda 0.1` |
+| FedEM ([Marfoq et al., 2021](https://arxiv.org/abs/2108.10252)) | `uv run mcfl-train --method fedem --num-centers 3` |
 | Local only | `uv run mcfl-train --method local` |
 | Oracle | `uv run mcfl-train --method oracle --cluster-shift rotation` |
 | FedAvg + fine-tuning | `uv run mcfl-train --num-centers 1 --pretrain-rounds 0 --finetune-epochs 5` |
@@ -110,6 +111,7 @@ uv run mcfl-train --num-centers 3 --rounds 100 --noniid-type dirichlet --alpha 0
 - IFCA は IFCA の model averaging 版に相当する（全センターのモデルを配信し、各クライアントが学習データ全体の損失が最小のセンターを選んでローカル学習し、センターごとに平均する。センターはランダム初期化）。毎ラウンド K 個のモデルを配信するため、下り通信量は FedAvg や距離ベースの E-step の K 倍になる。`--pretrain-rounds` を正にすれば、本実装と同じ K-Means 初期化を使った IFCA になる。
 - CFL は 1 つのクラスタ（ランダム初期化）から始めて各クラスタで FedAvg を行い、クラスタの更新の平均のノルムが `--cfl-eps1` より小さく、更新のノルムの最大が `--cfl-eps2` より大きいクラスタを、更新のコサイン類似度による階層クラスタリング（complete linkage）で 2 つに分割する（公式実装と同じ判定）。クラスタ数は事前に決めず、`--num-centers` は上限として使う。分割に全メンバーの更新が必要なため `--frac 1.0` が必須。ノルムの大きさはモデルや学習率に依存するので、`train.log` の各クラスタの `Mean norm` / `Max norm` と `client_round.csv` の `Update Norm` を見て閾値を調整する。
 - Ditto はグローバルモデルを FedAvg で学習しつつ、参加したクライアントが自分の個別モデルを、ラウンド開始時のグローバルモデルへの近接項付きで `--local-epochs` エポック学習する。評価は個別モデルで行う（`--finetune-epochs` は使わない）。個別モデルはグローバルモデルの初期値から始める。
+- FedEM は各クライアントのデータ分布を `--num-centers` 個の共有コンポーネント（ランダム初期化）の混合とみなし、クライアントごとの混合比を EM で推定する（ソフトな割り当て）。参加したクライアントは、学習データの各サンプルのコンポーネントごとの負担率と混合比を更新し、負担率で重み付けした損失で全コンポーネントを学習する。評価は混合比による混合モデルで行い、評価のセンターには混合比が最大のコンポーネントを記録する。全コンポーネントを配信・学習するため、通信量と計算量は FedAvg の K 倍。近接項 (`--prox-mu`) と `--finetune-epochs` は使わない。
 - Local only は通信せず、`--frac` によらず毎ラウンド全クライアントが自分のモデルを `--local-epochs` エポック学習し、自分のテストデータで評価する。`--num-centers` と `--pretrain-rounds` は無視される。
 - Oracle は `--cluster-shift` で作った正解のグループごとに 1 つのセンターを持ち、各クライアントを自分のグループのセンターに固定して FedAvg を行う（クラスタリングが完璧な場合の上限）。`--num-centers` は `--num-groups` に、`--pretrain-rounds` は 0 になる。
 - 正解のあるクラスタ構造で比較するときは、全手法に同じ `--cluster-shift` と `--num-groups` を指定する（例: `--cluster-shift rotation --num-groups 4 --num-centers 4`）。所属センターが正解のグループをどれだけ復元できたかを `log.csv` の `ARI` で比較できる。
@@ -128,7 +130,7 @@ uv run streamlit run app.py
 - センターごとの精度の推移
 - 各センターに所属するクライアント数の推移
 - 所属センターと正解のグループの一致度 (ARI) の推移（`--cluster-shift` 指定時）
-- 割り当て確率のエントロピー（センターをどれだけはっきり区別できているか）の推移（`loss` モード）
+- 割り当て確率のエントロピー（センターをどれだけはっきり区別できているか）の推移（`loss` モードと FedEM）
 - 学習後に所属センターが変わったクライアントの割合の推移（`distance` モード）
 - クライアントごとの精度の分布
 - クライアントのセンター割り当てのヒートマップ
@@ -163,7 +165,7 @@ MNIST 上で FedAvg ([McMahan et al., 2017](https://arxiv.org/abs/1602.05629)) �
 | `train.log` | コンソールに出力されたログ（例外のトレースバックを含む） |
 | `log.csv` | ラウンドごとの学習損失・検証損失・精度（`Accuracy`: サンプル数で重み付けした micro、`Macro Accuracy`: クライアントごとの精度の平均）・実行時間（合計、学習、評価）・各センターの所属クライアント数・センターごとの精度と検証損失・評価に使ったセンターと正解のグループの ARI（`ARI`、`--cluster-shift` 指定時のみ） |
 | `clients.csv` | 各クライアントの学習データ数・テストデータ数・K-Means による初期クラスタ（`Init Center`、事前学習時のみ）・正解のグループ（`Group`、`--cluster-shift` 指定時のみ） |
-| `client_round.csv` | 縦持ち形式。ラウンドごとに参加したクライアントの学習を始めたセンター (`Start Center`)、割り当てたセンター (`Center`)、割り当ての根拠（`loss`: 各センターへの割り当て確率 `P_k` とエントロピー、`distance`: 各センターとの距離 `D_k`、`cfl`: 更新のノルム `Update Norm`、`ditto`: 個別モデルの学習損失 `Personal Loss`）、学習損失 |
+| `client_round.csv` | 縦持ち形式。ラウンドごとに参加したクライアントの学習を始めたセンター (`Start Center`)、割り当てたセンター (`Center`)、割り当ての根拠（`loss`: 各センターへの割り当て確率 `P_k` とエントロピー、`distance`: 各センターとの距離 `D_k`、`cfl`: 更新のノルム `Update Norm`、`ditto`: 個別モデルの学習損失 `Personal Loss`、`fedem`: 混合比 `P_k` とエントロピー）、学習損失 |
 | `client_eval.csv` | 縦持ち形式。ラウンドごと・クライアントごとの評価結果（評価に使ったセンター、精度、検証損失、テストデータ数） |
 | `client_allocation.csv` | ラウンドごとの各クライアントの所属センター（行: ラウンド、列: クライアント） |
 | `checkpoints/center_<k>.pt` | `--save-models` 指定時のみ、学習完了時の各センターのモデルの `state_dict` |
@@ -180,6 +182,7 @@ MNIST 上で FedAvg ([McMahan et al., 2017](https://arxiv.org/abs/1602.05629)) �
 | [src/mcfl/server.py](src/mcfl/server.py) | サーバー（M-step と評価） |
 | [src/mcfl/cfl.py](src/mcfl/cfl.py) | CFL のサーバー（クラスタの分割） |
 | [src/mcfl/ditto.py](src/mcfl/ditto.py) | Ditto のサーバー（個別モデルの学習と評価） |
+| [src/mcfl/fedem.py](src/mcfl/fedem.py) | FedEM のサーバー（混合比の推定とコンポーネントの学習） |
 | [src/mcfl/init_centers.py](src/mcfl/init_centers.py) | FedAvg 事前学習と K-Means によるセンターの初期化 |
 | [src/mcfl/experiment_logger.py](src/mcfl/experiment_logger.py) | 実験ログの保存 |
 | [app.py](app.py) | Streamlit ダッシュボード |
