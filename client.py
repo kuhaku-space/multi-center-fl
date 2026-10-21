@@ -27,9 +27,10 @@ class Client:
             train_len = total_len
             test_len = 0
 
-        # seed固定
         self.train_dataset, self.test_dataset = random_split(
-            dataset, [train_len, test_len], generator=torch.Generator().manual_seed(42)
+            dataset,
+            [train_len, test_len],
+            generator=torch.Generator().manual_seed(config.seed),
         )
 
         # DataLoaderの作成
