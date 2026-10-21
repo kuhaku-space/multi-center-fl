@@ -32,6 +32,8 @@ class Config:
     # E-step の割り当て方法。distance: 学習後の重みに最も近いセンター（論文の Eq. 8）、
     # loss: 学習前に損失が最小のセンター
     assignment: str = "distance"
+    # ローカル学習の近接項 (μ/2)‖w − w_center‖² の係数（論文の Eq. 7 の λ）。0 で無効
+    prox_mu: float = 0.0
     # Temperature for soft assignment (lower = harder assignment)。loss モードのログ用
     em_temperature: float = 1.0
     # センター初期化前の FedAvg 事前学習ラウンド数（0 ならランダム初期化）
@@ -119,6 +121,12 @@ class Config:
             default=d.assignment,
             choices=["distance", "loss"],
             help="E-step assignment (distance: nearest center in weight space, loss: lowest loss)",
+        )
+        parser.add_argument(
+            "--prox-mu",
+            type=float,
+            default=d.prox_mu,
+            help="Coefficient of the proximal term to the center in local training (0: off)",
         )
         parser.add_argument(
             "--pretrain-rounds",

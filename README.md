@@ -18,6 +18,7 @@ NIST Special Database 19 の手書き文字データを使った、マルチセ�
 2. **ローカル学習と E-step**: `--assignment` で割り当て方法を選ぶ。
    - `distance`（デフォルト、[server.py](src/mcfl/server.py)）: 各クライアントが所属センター（最初は K-Means の初期クラスタ）のモデルからローカル学習し、学習後の重みに重み空間で最も近いセンターに割り当て直す。論文の E-step (Eq. 8) に対応する。
    - `loss`（[client.py](src/mcfl/client.py)）: 各クライアントが学習データの先頭バッチで全センターの損失を計算し、`softmax(-loss / τ)` が最大（= 損失が最小）のセンターからローカル学習し、そのセンターに割り当てる。論文が比較手法として挙げている HypoCluster / IFCA と同様の方法で、学習の進んだセンターが全クライアントを取り込みやすい。
+   - `--prox-mu` が正なら、ローカル学習の損失に学習開始時のセンターからの距離の近接項を加える（論文の Eq. 7）。
 3. **M-step**（[server.py](src/mcfl/server.py)）: 各センターのモデルを、そのセンターに割り当てられたクライアントの重みの平均で更新する。割り当てられたクライアントがいないセンターは前のモデルを維持する。
 4. **評価**: 各クライアントのテストデータを、所属センターのモデルで評価する（`loss` モードでは、E-step と同じく学習データの先頭バッチで損失が最小のセンターを選ぶ）。
 
@@ -63,6 +64,7 @@ uv run mcfl-train
 | `--max-imgs-per-writer` | `100` | 書き手 1 人あたりの最大画像数 |
 | `--noniid-type` | `writer` | Non-IID 分割方法。`writer`: 書き手ごとの自然な分割、`dirichlet`: Dirichlet 分布でクラス分布を偏らせる |
 | `--assignment` | `distance` | E-step の割り当て方法（`distance`: 学習後の重みに最も近いセンター、`loss`: 損失が最小のセンター） |
+| `--prox-mu` | `0` | ローカル学習で損失に加える近接項 (μ/2)‖w − w_center‖² の係数（論文の Eq. 7）。`0` で無効 |
 | `--pretrain-rounds` | `5` | センター初期化前の FedAvg 事前学習ラウンド数（`0` でランダム初期化） |
 | `--alpha` | `0.5` | Dirichlet 分布の集中度（小さいほど偏りが強い） |
 | `--data-root` | `./data/nist/extracted` | データのルートディレクトリ |

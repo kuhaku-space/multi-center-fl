@@ -94,9 +94,15 @@ class Client:
         return local_model.state_dict(), avg_loss
 
     def _train(self, model: nn.Module) -> float:
-        """ローカル学習を行い、平均損失を返す"""
+        """
+        ローカル学習を行い、平均損失（近接項を除く）を返す
+
+        prox_mu > 0 なら、学習開始時の重み（= センター）からの距離の近接項
+        (μ/2)‖w − w_center‖² を損失に加える（論文の Eq. 7）
+        """
         model.train()
         optimizer = optim.SGD(model.parameters(), lr=self.cfg.lr)
+        anchor = [p.detach().clone() for p in model.parameters()]
 
         total_loss = 0.0
         batch_count = 0
@@ -105,10 +111,16 @@ class Client:
                 x, y = x.to(self.device), y.to(self.device)
                 optimizer.zero_grad()
                 loss = self.criterion(model(x), y)
+                total_loss += loss.item()
+                if self.cfg.prox_mu > 0:
+                    prox = sum(
+                        ((p - a) ** 2).sum()
+                        for p, a in zip(model.parameters(), anchor, strict=True)
+                    )
+                    loss = loss + self.cfg.prox_mu / 2 * prox
                 loss.backward()
                 optimizer.step()
 
-                total_loss += loss.item()
                 batch_count += 1
 
         return total_loss / batch_count if batch_count > 0 else 0.0
