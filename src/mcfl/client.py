@@ -94,16 +94,24 @@ class Client:
         avg_loss = self.train(local_model, self.cfg.local_epochs)
         return local_model.state_dict(), avg_loss
 
-    def train(self, model: nn.Module, epochs: int) -> float:
+    def train(
+        self,
+        model: nn.Module,
+        epochs: int,
+        prox_mu: float | None = None,
+        anchor_model: nn.Module | None = None,
+    ) -> float:
         """
         model をその場で epochs エポックローカル学習し、平均損失（近接項を除く）を返す
 
-        prox_mu > 0 なら、学習開始時の重み（= センター）からの距離の近接項
-        (μ/2)‖w − w_center‖² を損失に加える（論文の Eq. 7）
+        prox_mu（省略時は設定の prox_mu）> 0 なら、anchor_model（省略時は学習開始時の重み
+        = センター）からの距離の近接項 (μ/2)‖w − w_anchor‖² を損失に加える（論文の Eq. 7）
         """
+        if prox_mu is None:
+            prox_mu = self.cfg.prox_mu
         model.train()
         optimizer = optim.SGD(model.parameters(), lr=self.cfg.lr)
-        anchor = [p.detach().clone() for p in model.parameters()]
+        anchor = [p.detach().clone() for p in (anchor_model or model).parameters()]
 
         total_loss = 0.0
         batch_count = 0
@@ -113,12 +121,12 @@ class Client:
                 optimizer.zero_grad()
                 loss = self.criterion(model(x), y)
                 total_loss += loss.item()
-                if self.cfg.prox_mu > 0:
+                if prox_mu > 0:
                     prox = sum(
                         ((p - a) ** 2).sum()
                         for p, a in zip(model.parameters(), anchor, strict=True)
                     )
-                    loss = loss + self.cfg.prox_mu / 2 * prox
+                    loss = loss + prox_mu / 2 * prox
                 loss.backward()
                 optimizer.step()
 

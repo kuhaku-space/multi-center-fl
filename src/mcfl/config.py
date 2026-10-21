@@ -12,7 +12,8 @@ class Config:
     # 基本設定
     # mcfl: マルチセンター連合学習、local: 各クライアントが自分のデータだけで学習する（比較用）、
     # cfl: Clustered Federated Learning（比較用。num_centers はクラスタ数の上限）、
-    # oracle: 正解のグループ（cluster_shift）をセンターの所属に使う（比較用の上限）
+    # oracle: 正解のグループ（cluster_shift）をセンターの所属に使う（比較用の上限）、
+    # ditto: Ditto（比較用。グローバルモデルへの近接項付きで個別モデルを学習する）
     method: str = "mcfl"
     num_centers: int = 2
     rounds: int = 50
@@ -49,6 +50,8 @@ class Config:
     cfl_eps1: float = 0.4
     cfl_eps2: float = 1.6
     cfl_warmup_rounds: int = 20
+    # Ditto の個別モデルの近接項 (λ/2)‖v − w_global‖² の係数
+    ditto_lambda: float = 0.1
     # 評価前に所属センターのモデルを各クライアントでローカル学習するエポック数（0 で無効）
     finetune_epochs: int = 0
 
@@ -75,8 +78,8 @@ class Config:
             "--method",
             type=str,
             default=d.method,
-            choices=["mcfl", "local", "cfl", "oracle"],
-            help="Training method (mcfl: multi-center FL, local: each client trains alone, cfl: clustered FL with --num-centers as the max clusters, oracle: centers from the ground-truth groups of --cluster-shift)",
+            choices=["mcfl", "local", "cfl", "oracle", "ditto"],
+            help="Training method (mcfl: multi-center FL, local: each client trains alone, cfl: clustered FL with --num-centers as the max clusters, oracle: centers from the ground-truth groups of --cluster-shift, ditto: personalized models regularized toward the global model)",
         )
         parser.add_argument(
             "--num-centers", type=int, default=d.num_centers, help="Number of centers"
@@ -186,6 +189,12 @@ class Config:
             help="CFL: do not split clusters during these first rounds",
         )
         parser.add_argument(
+            "--ditto-lambda",
+            type=float,
+            default=d.ditto_lambda,
+            help="Ditto: coefficient of the proximal term from personal models to the global model",
+        )
+        parser.add_argument(
             "--finetune-epochs",
             type=int,
             default=d.finetune_epochs,
@@ -227,8 +236,9 @@ class Config:
         if config.cluster_shift == "rotation" and config.num_groups > 4:
             parser.error("--cluster-shift rotation supports at most 4 groups")
 
-        # local ではセンターを使わない。ログの集計に合わせて 1 つのセンターとして扱う
-        if config.method == "local":
+        # local ではセンターを使わない。ログの集計に合わせて 1 つのセンターとして扱う。
+        # ditto のグローバルモデルは1つ
+        if config.method in ("local", "ditto"):
             config.num_centers = 1
             config.pretrain_rounds = 0
 
