@@ -1,3 +1,4 @@
+import copy
 import math
 from dataclasses import dataclass
 
@@ -102,6 +103,10 @@ class Server:
 
         所属がないクライアント（loss モードでは全員）は、E-step と同じく学習データの
         先頭バッチで損失が最小のセンターを選ぶ（テストデータは選択に使わない）
+
+        finetune_epochs > 0 なら、センターのモデルのコピーをクライアントの学習データで
+        ローカル学習してから評価する（FedAvg + fine-tuning などの個別化ベースライン）。
+        ローカル学習の手順（prox_mu による近接項を含む）はラウンド中と同じで、センターは変更しない
         """
         results = []
         for client in clients:
@@ -113,7 +118,11 @@ class Server:
                 probs = client.compute_center_probabilities(self.models)
                 center = probs.index(max(probs))
 
-            correct, samples, loss_sum = client.evaluate(self.models[center])
+            model = self.models[center]
+            if self.cfg.finetune_epochs > 0:
+                model = copy.deepcopy(model)
+                client.train(model, self.cfg.finetune_epochs)
+            correct, samples, loss_sum = client.evaluate(model)
             results.append(
                 ClientEval(client.writer_id, center, correct, samples, loss_sum)
             )

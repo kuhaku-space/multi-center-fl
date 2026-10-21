@@ -38,6 +38,8 @@ class Config:
     em_temperature: float = 1.0
     # センター初期化前の FedAvg 事前学習ラウンド数（0 ならランダム初期化）
     pretrain_rounds: int = 5
+    # 評価前に所属センターのモデルを各クライアントでローカル学習するエポック数（0 で無効）
+    finetune_epochs: int = 0
 
     # 高速化設定
     num_workers: int = 0  # GPUなら0推奨
@@ -133,6 +135,12 @@ class Config:
             type=int,
             default=d.pretrain_rounds,
             help="FedAvg rounds before initializing centers by K-Means (0: random init)",
+        )
+        parser.add_argument(
+            "--finetune-epochs",
+            type=int,
+            default=d.finetune_epochs,
+            help="Epochs to fine-tune the center model on each client before evaluation (0: off)",
         )
         parser.add_argument(
             "--num-workers", type=int, default=d.num_workers, help="Number of workers"
