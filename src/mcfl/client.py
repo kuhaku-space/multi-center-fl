@@ -146,23 +146,23 @@ class Client:
         """
         E-step: 全センターに対するソフト割り当て確率を計算
 
-        softmax(-loss/τ) で確率を計算する。損失が最小のセンターを選ぶのは、論文が比較手法として
-        挙げている HypoCluster / IFCA と同様の方法で、論文の手法（重み空間での距離）とは異なる
+        学習データ全体に対する各センターの平均損失から softmax(-loss/τ) で確率を計算する。
+        損失が最小のセンターを選ぶのは、論文が比較手法として挙げている HypoCluster / IFCA
+        （IFCA と同じくローカルの学習データ全体で損失を測る）と同様の方法で、
+        論文の手法（重み空間での距離）とは異なる
 
         Note:
             損失ベースの割り当てでは、多くのクライアントから更新を受けて学習が進んだセンターが
             どのクライアントに対しても損失が小さくなり、全クライアントを取り込みやすい。
             論文と同様の重み空間での距離による割り当ては Server.participate_by_distance を参照。
         """
-        # 学習データの最初のバッチを使って判断する
-        try:
-            x, y = next(iter(self.train_loader))
-        except StopIteration:
+        if len(self.train_dataset) == 0:
             # データがない場合は均等確率
             return [1.0 / len(global_models)] * len(global_models)
 
-        x, y = x.to(self.device), y.to(self.device)
-        losses = compute_losses(global_models, x, y, self.criterion)
+        losses = compute_losses(
+            global_models, self.train_loader, self.criterion, self.device
+        )
 
         # p_k = exp(-loss_k / τ) / Σ_j exp(-loss_j / τ)
         neg_losses = (

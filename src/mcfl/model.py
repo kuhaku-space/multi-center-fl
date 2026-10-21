@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from torch.utils.data import DataLoader
 
 StateDict = dict[str, torch.Tensor]
 
@@ -41,16 +42,21 @@ class SimpleCNN(nn.Module):
 @torch.no_grad()
 def compute_losses(
     models: list[nn.Module],
-    x: torch.Tensor,
-    y: torch.Tensor,
+    loader: DataLoader,
     criterion: nn.Module,
+    device: torch.device,
 ) -> list[float]:
-    """1バッチに対する各モデルの損失を計算する"""
-    losses = []
+    """loader の全データに対する各モデルの平均損失を計算する"""
+    loss_sums = [0.0] * len(models)
+    samples = 0
     for model in models:
         model.eval()
-        losses.append(criterion(model(x), y).item())
-    return losses
+    for x, y in loader:
+        x, y = x.to(device), y.to(device)
+        for k, model in enumerate(models):
+            loss_sums[k] += criterion(model(x), y).item() * x.size(0)
+        samples += x.size(0)
+    return [s / samples for s in loss_sums]
 
 
 def flatten_weights(weights: StateDict) -> torch.Tensor:
