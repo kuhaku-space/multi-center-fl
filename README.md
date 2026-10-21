@@ -101,7 +101,7 @@ MNIST 上で FedAvg ([McMahan et al., 2017](https://arxiv.org/abs/1602.05629)) �
 
 ## ログ出力
 
-実験ごとに `./logs/<YYYYmmdd_HHMMSS>/` が作られ、以下のファイルが保存されます。
+実験ごとに `./logs/<YYYYmmdd_HHMMSS>_K<num_centers>_s<seed>/` が作られ（同名がある場合は末尾に `_1`, `_2`, ... が付きます）、以下のファイルが保存されます。
 
 | ファイル | 内容 |
 | --- | --- |

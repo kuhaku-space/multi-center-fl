@@ -2,6 +2,7 @@ import json
 import logging
 from dataclasses import asdict
 from datetime import datetime
+from itertools import count
 from pathlib import Path
 
 import pandas as pd
@@ -14,9 +15,9 @@ logger = logging.getLogger(__name__)
 # --- ロガーヘルパー ---
 class ExperimentLogger:
     def __init__(self, config: Config, writer_ids: list[str]):
-        self.run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.save_dir = Path(config.log_base_dir) / self.run_id
-        self.save_dir.mkdir(parents=True, exist_ok=True)
+        run_name = f"{datetime.now():%Y%m%d_%H%M%S}_K{config.num_centers}_s{config.seed}"
+        self.save_dir = _create_run_dir(Path(config.log_base_dir), run_name)
+        self.run_id = self.save_dir.name
 
         self.config_file = self.save_dir / "config.json"
         self.log_csv = self.save_dir / "log.csv"
@@ -59,3 +60,16 @@ class ExperimentLogger:
     @staticmethod
     def _append_csv(path: Path, df: pd.DataFrame):
         df.to_csv(path, mode="a", header=not path.exists(), index=False)
+
+
+def _create_run_dir(base_dir: Path, name: str) -> Path:
+    """新しい実験ディレクトリを作る（同名があれば連番を付け、既存の実験に書き込まない）"""
+    base_dir.mkdir(parents=True, exist_ok=True)
+    for i in count():
+        path = base_dir / (name if i == 0 else f"{name}_{i}")
+        try:
+            path.mkdir()
+        except FileExistsError:
+            continue
+        return path
+    raise AssertionError("unreachable")
