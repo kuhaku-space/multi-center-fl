@@ -17,7 +17,10 @@ def initialize_centers(
     clients: list[Client], config: Config
 ) -> tuple[list[StateDict], list[int]]:
     """
-    センターの初期値を作る（公式実装と同様の手順）
+    センターの初期値を作る
+
+    論文は「ランダム初期化からのクラスタリングを20回行い、クラスタ内距離が最小のものを使う」、
+    公式実装はランダムな初期クラスタと共通の初期モデルを使っており、以下は本実装独自の手順:
 
     1. 共通モデルを FedAvg で pretrain_rounds ラウンド事前学習する
     2. 全クライアントが事前学習モデルからローカル学習する

@@ -26,7 +26,7 @@ class Config:
     alpha: float = 0.5  # Dirichlet concentration parameter
 
     # EM algorithm設定 (Multi-Center FL paper)
-    # E-step の割り当て方法。distance: 学習後の重みに最も近いセンター（公式実装と同様）、
+    # E-step の割り当て方法。distance: 学習後の重みに最も近いセンター（論文の Eq. 8）、
     # loss: 学習前に損失が最小のセンター
     assignment: str = "distance"
     # Temperature for soft assignment (lower = harder assignment)。loss モードのログ用

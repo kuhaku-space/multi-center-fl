@@ -55,7 +55,7 @@ class Server:
 
     def participate_by_distance(self, client: Client) -> ClientUpdate:
         """
-        距離ベースの E-step（公式実装と同様）
+        距離ベースの E-step（論文の Eq. 8）
 
         クライアントは所属センターからローカル学習し、学習後の重みに最も近いセンターに割り当て直す。
         所属がまだないクライアント（ランダム初期化時）は、損失が最小のセンターから始める。
