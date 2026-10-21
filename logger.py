@@ -24,7 +24,6 @@ class ExperimentLogger:
         # 列は全クライアントで固定（未参加のラウンドは空欄になる）
         self.allocation_columns = ["Round"] + sorted(writer_ids)
 
-        # Config保存
         with self.config_file.open("w") as f:
             json.dump(asdict(config), f, indent=4)
 
@@ -49,18 +48,14 @@ class ExperimentLogger:
         for k, v in center_counts.items():
             record[f"Center_{k}_Clients"] = v
 
-        df = pd.DataFrame([record])
-        if not self.log_csv.exists():
-            df.to_csv(self.log_csv, index=False)
-        else:
-            df.to_csv(self.log_csv, mode="a", header=False, index=False)
+        self._append_csv(self.log_csv, pd.DataFrame([record]))
 
-    def save_allocations(self, allocations: list[dict[str, int]]):
-        """
-        allocations: [{"Round": 1, "writerA": 0, ...}]
-        """
-        df = pd.DataFrame(allocations).reindex(columns=self.allocation_columns)
-        if not self.allocation_csv.exists():
-            df.to_csv(self.allocation_csv, index=False)
-        else:
-            df.to_csv(self.allocation_csv, mode="a", header=False, index=False)
+    def save_allocations(self, round_num: int, allocations: dict[str, int]):
+        """allocations: {"writerA": 0, ...}（そのラウンドに参加したクライアントの所属センター）"""
+        record = {"Round": round_num, **allocations}
+        df = pd.DataFrame([record]).reindex(columns=self.allocation_columns)
+        self._append_csv(self.allocation_csv, df)
+
+    @staticmethod
+    def _append_csv(path: Path, df: pd.DataFrame):
+        df.to_csv(path, mode="a", header=not path.exists(), index=False)

@@ -1,13 +1,14 @@
 import copy
-import math
 
 import torch
-import torch.nn as nn
-import torch.optim as optim
+from torch import nn, optim
 from torch.utils.data import DataLoader, random_split
 
 from config import Config
 from dataset import NistWriterDataset
+from model import compute_losses
+
+TRAIN_RATIO = 0.8
 
 
 # --- Client 定義 ---
@@ -20,12 +21,8 @@ class Client:
 
         # --- データの分割 (80% Train, 20% Test) ---
         total_len = len(dataset)
-        train_len = int(total_len * 0.8)
+        train_len = int(total_len * TRAIN_RATIO) or total_len
         test_len = total_len - train_len
-
-        if train_len == 0:
-            train_len = total_len
-            test_len = 0
 
         self.train_dataset, self.test_dataset = random_split(
             dataset,
@@ -33,25 +30,30 @@ class Client:
             generator=torch.Generator().manual_seed(config.seed),
         )
 
-        # DataLoaderの作成
+        loader_kwargs = {
+            "num_workers": config.num_workers,
+            "pin_memory": config.pin_memory,
+        }
         self.train_loader = DataLoader(
             self.train_dataset,
-            batch_size=min(config.batch_size, len(self.train_dataset)),
+            batch_size=min(config.batch_size, train_len),
             shuffle=True,
-            num_workers=config.num_workers,
-            pin_memory=config.pin_memory if torch.cuda.is_available() else False,
+            **loader_kwargs,
         )
-
-        if test_len > 0:
-            self.test_loader = DataLoader(
+        self.test_loader = (
+            DataLoader(
                 self.test_dataset,
                 batch_size=config.batch_size,
                 shuffle=False,
-                num_workers=config.num_workers,
-                pin_memory=config.pin_memory if torch.cuda.is_available() else False,
+                **loader_kwargs,
             )
-        else:
-            self.test_loader = None
+            if test_len > 0
+            else None
+        )
+
+    @property
+    def num_samples(self) -> int:
+        return len(self.train_dataset) + len(self.test_dataset)
 
     def participate(
         self, global_models: list[nn.Module]
@@ -62,33 +64,35 @@ class Client:
         Returns:
             tuple: (確率リスト, 更新後の重み, 平均損失)
         """
-        probs, _best_idx, model = self._compute_center_probabilities(global_models)
+        probs = self._compute_center_probabilities(global_models)
+        best_idx = probs.index(max(probs))
+        model = copy.deepcopy(global_models[best_idx])
+        avg_loss = self._train(model)
+        return probs, model.state_dict(), avg_loss
 
-        # 学習
+    def _train(self, model: nn.Module) -> float:
+        """ローカル学習を行い、平均損失を返す"""
         model.train()
         optimizer = optim.SGD(model.parameters(), lr=self.cfg.lr)
 
-        epoch_loss = 0.0
+        total_loss = 0.0
         batch_count = 0
-
         for _ in range(self.cfg.local_epochs):
             for x, y in self.train_loader:
                 x, y = x.to(self.device), y.to(self.device)
                 optimizer.zero_grad()
-                out = model(x)
-                loss = self.criterion(out, y)
+                loss = self.criterion(model(x), y)
                 loss.backward()
                 optimizer.step()
 
-                epoch_loss += loss.item()
+                total_loss += loss.item()
                 batch_count += 1
 
-        avg_loss = epoch_loss / batch_count if batch_count > 0 else 0.0
-        return probs, model.state_dict(), avg_loss
+        return total_loss / batch_count if batch_count > 0 else 0.0
 
     def _compute_center_probabilities(
         self, global_models: list[nn.Module]
-    ) -> tuple[list[float], int, nn.Module]:
+    ) -> list[float]:
         """
         E-step: 全センターに対するソフト割り当て確率を計算
 
@@ -101,34 +105,16 @@ class Client:
         """
         # 学習データの最初のバッチを使って判断する
         try:
-            x_check, y_check = next(iter(self.train_loader))
+            x, y = next(iter(self.train_loader))
         except StopIteration:
             # データがない場合は均等確率
-            num_centers = len(global_models)
-            uniform_probs = [1.0 / num_centers] * num_centers
-            return uniform_probs, 0, copy.deepcopy(global_models[0])
+            return [1.0 / len(global_models)] * len(global_models)
 
-        x_check, y_check = x_check.to(self.device), y_check.to(self.device)
+        x, y = x.to(self.device), y.to(self.device)
+        losses = compute_losses(global_models, x, y, self.criterion)
 
-        # 各センターの損失を計算
-        losses: list[float] = []
-        with torch.no_grad():
-            for model in global_models:
-                model.eval()
-                output = model(x_check)
-                loss = self.criterion(output, y_check).item()
-                losses.append(loss)
-
-        # Softmax on negative losses (lower loss = higher probability)
         # p_k = exp(-loss_k / τ) / Σ_j exp(-loss_j / τ)
-        temperature = self.cfg.em_temperature
-        neg_losses = [-loss_val / temperature for loss_val in losses]
-        max_nl = max(neg_losses)  # for numerical stability
-        exp_vals = [math.exp(nl - max_nl) for nl in neg_losses]
-        total = sum(exp_vals)
-        probs = [ev / total for ev in exp_vals]
-
-        # 最良のセンターを選択（学習には最も確率が高いモデルを使用）
-        best_idx = probs.index(max(probs))
-
-        return probs, best_idx, copy.deepcopy(global_models[best_idx])
+        neg_losses = (
+            torch.tensor(losses, dtype=torch.float64) / -self.cfg.em_temperature
+        )
+        return torch.softmax(neg_losses, dim=0).tolist()

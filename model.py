@@ -1,11 +1,11 @@
 import torch
-import torch.nn as nn
+from torch import nn
 
 
 # --- モデル定義 ---
 class SimpleCNN(nn.Module):
     def __init__(self, num_classes: int):
-        super(SimpleCNN, self).__init__()
+        super().__init__()
 
         self.features = nn.Sequential(
             # Conv1: filters=32, kernel_size=[5, 5], padding="same"
@@ -34,3 +34,18 @@ class SimpleCNN(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.features(x)
         return self.classifier(x)
+
+
+@torch.no_grad()
+def compute_losses(
+    models: list[nn.Module],
+    x: torch.Tensor,
+    y: torch.Tensor,
+    criterion: nn.Module,
+) -> list[float]:
+    """1バッチに対する各モデルの損失を計算する"""
+    losses = []
+    for model in models:
+        model.eval()
+        losses.append(criterion(model(x), y).item())
+    return losses

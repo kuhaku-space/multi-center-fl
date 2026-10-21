@@ -1,18 +1,20 @@
 import argparse
 import copy
 import time
-from typing import Dict, List, Set, Tuple, Union, cast
+from typing import cast
 
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, Subset, TensorDataset
+from torch import nn
+from torch.utils.data import DataLoader, Dataset, Subset, TensorDataset
 from torchvision import datasets, transforms
 
 # RTX 3080 (Ampere) 以降で有効な行列演算の高速化
 torch.set_float32_matmul_precision("high")
+
+StateDict = dict[str, torch.Tensor]
 
 # ==========================================
 # 1. モデル定義 (論文 Source: 192, 193)
@@ -26,7 +28,7 @@ class MNIST_2NN(nn.Module):
     """
 
     def __init__(self) -> None:
-        super(MNIST_2NN, self).__init__()
+        super().__init__()
         self.fc1 = nn.Linear(28 * 28, 200)
         self.fc2 = nn.Linear(200, 200)
         self.fc3 = nn.Linear(200, 10)
@@ -46,7 +48,7 @@ class MNIST_CNN(nn.Module):
     """
 
     def __init__(self) -> None:
-        super(MNIST_CNN, self).__init__()
+        super().__init__()
         self.conv1 = nn.Conv2d(1, 32, kernel_size=5)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=5)
         self.fc1 = nn.Linear(64 * 4 * 4, 512)
@@ -60,12 +62,14 @@ class MNIST_CNN(nn.Module):
         return F.log_softmax(self.fc2(x), dim=1)
 
 
+MODELS: dict[str, type[nn.Module]] = {"mlp": MNIST_2NN, "cnn": MNIST_CNN}
+
 # ==========================================
 # 2. データ分割ヘルパー (論文 Source: 195)
 # ==========================================
 
 
-def get_mnist() -> Tuple[datasets.MNIST, datasets.MNIST]:
+def get_mnist() -> tuple[datasets.MNIST, datasets.MNIST]:
     """MNISTデータのダウンロードと変換"""
     trans = transforms.Compose(
         [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
@@ -87,28 +91,28 @@ def dataset_to_device(dataset: datasets.MNIST, device: torch.device) -> TensorDa
     return TensorDataset(data.to(device), targets.to(device))
 
 
-def mnist_iid(dataset: datasets.MNIST, num_users: int) -> Dict[int, Set[int]]:
+def mnist_iid(dataset: datasets.MNIST, num_users: int) -> dict[int, set[int]]:
     """
     IID: データをシャッフルして各ユーザーに均等に分配
     """
-    num_items = int(len(dataset) / num_users)
-    dict_users: Dict[int, Set[int]] = {}
-    all_idxs = [i for i in range(len(dataset))]
+    num_items = len(dataset) // num_users
+    dict_users: dict[int, set[int]] = {}
+    all_idxs = list(range(len(dataset)))
     for i in range(num_users):
         dict_users[i] = set(np.random.choice(all_idxs, num_items, replace=False))
         all_idxs = list(set(all_idxs) - dict_users[i])
     return dict_users
 
 
-def mnist_noniid(dataset: datasets.MNIST, num_users: int) -> Dict[int, np.ndarray]:
+def mnist_noniid(dataset: datasets.MNIST, num_users: int) -> dict[int, np.ndarray]:
     """
     Non-IID: ラベルでソートし、200個のシャードに分割。
     各ユーザーに2つのシャードを割り当てる（結果として各ユーザーは少数の数字クラスしか持たない）。
     Source: 195
     """
     num_shards, num_imgs = 200, 300
-    idx_shard = [i for i in range(num_shards)]
-    dict_users: Dict[int, np.ndarray] = {
+    idx_shard = list(range(num_shards))
+    dict_users: dict[int, np.ndarray] = {
         i: np.array([], dtype="int64") for i in range(num_users)
     }
     idxs = np.arange(num_shards * num_imgs)
@@ -116,8 +120,7 @@ def mnist_noniid(dataset: datasets.MNIST, num_users: int) -> Dict[int, np.ndarra
 
     # ラベルでソート
     idxs_labels = np.vstack((idxs, labels))
-    idxs_labels = idxs_labels[:, idxs_labels[1, :].argsort()]
-    idxs = idxs_labels[0, :]
+    idxs = idxs_labels[:, idxs_labels[1, :].argsort()][0, :]
 
     # 各ユーザーに2つのシャードを割り当て
     for i in range(num_users):
@@ -167,7 +170,9 @@ def args_parser() -> argparse.Namespace:
     )
 
     # model arguments
-    parser.add_argument("--model", type=str, default="mlp", help="model name")
+    parser.add_argument(
+        "--model", type=str, default="mlp", choices=list(MODELS), help="model name"
+    )
     parser.add_argument("--dataset", type=str, default="mnist", help="name of dataset")
     parser.add_argument("--iid", action="store_true", help="whether i.i.d or not")
     parser.add_argument(
@@ -179,12 +184,24 @@ def args_parser() -> argparse.Namespace:
     return parser.parse_args()
 
 
-class LocalUpdate(object):
+def learning_rate_at(args: argparse.Namespace, round_idx: int) -> float:
+    """ラウンド round_idx (0始まり) で使う学習率"""
+    base_lr = args.lr
+    if args.lr_scheduler == "exponential":
+        return base_lr * (args.lr_decay**round_idx)
+    if args.lr_scheduler == "step":
+        return base_lr * (args.lr_decay ** (round_idx // args.lr_step_size))
+    if args.lr_scheduler == "cosine":
+        return 0.5 * base_lr * (1 + np.cos(np.pi * round_idx / args.epochs))
+    return base_lr
+
+
+class LocalUpdate:
     def __init__(
         self,
         args: argparse.Namespace,
-        dataset: Union[datasets.MNIST, TensorDataset],
-        idxs: Union[Set[int], np.ndarray],
+        dataset: Dataset,
+        idxs: set[int] | np.ndarray,
     ) -> None:
         self.args = args
         self.loss_func = nn.CrossEntropyLoss()
@@ -197,24 +214,20 @@ class LocalUpdate(object):
             num_workers=0,
         )
 
-    def train(self, net: nn.Module) -> Tuple[Dict[str, torch.Tensor], float]:
+    def train(self, net: nn.Module, lr: float) -> tuple[StateDict, float]:
         net.train()
-        # train and update
         optimizer = torch.optim.SGD(
-            net.parameters(), lr=self.args.lr, momentum=self.args.momentum
+            net.parameters(), lr=lr, momentum=self.args.momentum
         )
 
-        epoch_loss: List[float] = []
-        for iter in range(self.args.local_ep):
-            batch_loss: List[float] = []
-            for batch_idx, (images, labels) in enumerate(self.ldr_train):
-                images, labels = (
-                    images.to(self.args.device),
-                    labels.to(self.args.device),
-                )
+        epoch_loss: list[float] = []
+        for _ in range(self.args.local_ep):
+            batch_loss: list[float] = []
+            for images, labels in self.ldr_train:
+                images = images.to(self.args.device)
+                labels = labels.to(self.args.device)
                 optimizer.zero_grad(set_to_none=True)
-                log_probs = net(images)
-                loss = self.loss_func(log_probs, labels)
+                loss = self.loss_func(net(images), labels)
                 loss.backward()
                 optimizer.step()
                 batch_loss.append(loss.item())
@@ -228,37 +241,31 @@ class LocalUpdate(object):
 # ==========================================
 
 
-def FedAvg(w: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
+def fed_avg(w: list[StateDict]) -> StateDict:
     """
     重みの平均化 (Aggregation)
     w: list of client state_dicts
     """
-    return {
-        k: torch.stack([client_w[k] for client_w in w], 0).mean(0) for k in w[0].keys()
-    }
+    return {k: torch.stack([client_w[k] for client_w in w], 0).mean(0) for k in w[0]}
 
 
 def test_img(
-    net_g: nn.Module,
-    datatest: Union[datasets.MNIST, TensorDataset],
-    args: argparse.Namespace,
-) -> Tuple[float, float]:
-    """グローバルモデルの評価 (DataLoaderは外部で作成済みを想定)"""
+    net_g: nn.Module, datatest: Dataset, args: argparse.Namespace
+) -> tuple[float, float]:
+    """グローバルモデルの評価"""
     net_g.eval()
-    test_loss: float = 0
-    correct: float = 0
+    test_loss = 0.0
+    correct = 0
     data_loader = DataLoader(datatest, batch_size=args.bs)
 
     with torch.no_grad():  # 推論時は勾配計算不要
-        for idx, (data, target) in enumerate(data_loader):
+        for data, target in data_loader:
             log_probs = net_g(data)
             test_loss += F.cross_entropy(log_probs, target, reduction="sum").item()
-            y_pred = log_probs.data.max(1, keepdim=True)[1]
-            correct += y_pred.eq(target.data.view_as(y_pred)).long().cpu().sum().item()
+            correct += (log_probs.argmax(dim=1) == target).sum().item()
 
-    test_loss /= len(data_loader.dataset)  # type: ignore
-    accuracy = 100.00 * correct / len(data_loader.dataset)  # type: ignore
-    return accuracy, test_loss
+    num_samples = len(data_loader.dataset)  # type: ignore[arg-type]
+    return 100.0 * correct / num_samples, test_loss / num_samples
 
 
 # ==========================================
@@ -268,43 +275,34 @@ def test_img(
 
 def main() -> None:
     args = args_parser()
-    args.device = torch.device(
-        "cuda:{}".format(args.gpu)
-        if torch.cuda.is_available() and args.gpu != -1
-        else "cpu"
-    )
-    if args.device.type == "cuda":
+    use_cuda = torch.cuda.is_available() and args.gpu != -1
+    args.device = torch.device(f"cuda:{args.gpu}" if use_cuda else "cpu")
+    if use_cuda:
         torch.backends.cudnn.benchmark = True
 
     print(f"Using device: {args.device}")
     print(f"Dataset: {args.dataset}")
     print(f"IID: {args.iid}")
-    if args.device.type == "cuda":
+    if use_cuda:
         print(f"GPU Name: {torch.cuda.get_device_name(args.device)}")
         print(f"CUDA Version: {torch.version.cuda}")
 
     # データのロード
-    dataset_train, dataset_test = get_mnist()
+    mnist_train, mnist_test = get_mnist()
 
     # データの分割
-    dict_users: Union[Dict[int, Set[int]], Dict[int, np.ndarray]]
-    if args.iid:
-        dict_users = mnist_iid(dataset_train, args.num_users)
-    else:
-        dict_users = mnist_noniid(dataset_train, args.num_users)
+    split = mnist_iid if args.iid else mnist_noniid
+    dict_users = split(mnist_train, args.num_users)
 
     # データセットをGPUへ転送
+    dataset_train: Dataset = mnist_train
+    dataset_test: Dataset = mnist_test
     if args.gpu != -1:
-        dataset_train = dataset_to_device(dataset_train, args.device)
-        dataset_test = dataset_to_device(dataset_test, args.device)
+        dataset_train = dataset_to_device(mnist_train, args.device)
+        dataset_test = dataset_to_device(mnist_test, args.device)
 
     # モデルの初期化
-    net_glob: nn.Module
-    if args.model == "cnn":
-        net_glob = MNIST_CNN().to(args.device)
-    else:
-        net_glob = MNIST_2NN().to(args.device)
-
+    net_glob: nn.Module = MODELS[args.model]().to(args.device)
     print(net_glob)
 
     # ローカル学習用のモデルを1つ作成して使い回す
@@ -318,65 +316,44 @@ def main() -> None:
     # グローバルモデルの重みをコピー (コンパイル後に行うことでキーを一致させる)
     w_glob = net_glob.state_dict()
 
-    # 学習履歴
-    loss_train: List[float] = []
-    acc_test_history: List[float] = []
-    base_lr = args.lr
+    acc_test_history: list[float] = []
 
     # クライアントオブジェクトを事前に作成してDataLoaderの生成コストを抑える
     local_updates = [
         LocalUpdate(args=args, dataset=dataset_train, idxs=dict_users[i])
         for i in range(args.num_users)
     ]
+    # クライアントの選択数 (m = max(C * K, 1))
+    m = max(int(args.frac * args.num_users), 1)
 
     # 通信ラウンドのループ
-    for iter in range(args.epochs):
+    for round_idx in range(args.epochs):
         start_time = time.time()
-        current_lr = args.lr
+        lr = learning_rate_at(args, round_idx)
 
-        w_locals: List[Dict[str, torch.Tensor]] = []
-        loss_locals: List[float] = []
-
-        # クライアントの選択 (m = max(C * K, 1))
-        m = max(int(args.frac * args.num_users), 1)
-        idxs_users = np.random.choice(range(args.num_users), m, replace=False)
+        w_locals: list[StateDict] = []
+        loss_locals: list[float] = []
 
         # 選択された各クライアントでローカル学習
+        idxs_users = np.random.choice(range(args.num_users), m, replace=False)
         for idx in idxs_users:
             net_local.load_state_dict(w_glob)
-            w, loss = local_updates[idx].train(net=net_local)
+            w, loss = local_updates[idx].train(net=net_local, lr=lr)
             # 重みのコピーを高速化
             w_locals.append({k: v.clone() for k, v in w.items()})
             loss_locals.append(loss)
 
-        # 重みの集約 (FedAvg)
-        w_glob = FedAvg(w_locals)
-
-        # グローバルモデルを更新
+        # 重みの集約 (FedAvg) とグローバルモデルの更新
+        w_glob = fed_avg(w_locals)
         net_glob.load_state_dict(w_glob)
 
-        # ロスの記録
         loss_avg = sum(loss_locals) / len(loss_locals)
-        loss_train.append(loss_avg)
-
-        # 評価
-        acc_test, loss_test = test_img(net_glob, dataset_test, args)
+        acc_test, _ = test_img(net_glob, dataset_test, args)
         acc_test_history.append(acc_test)
 
-        # 学習率の更新
-        if args.lr_scheduler == "exponential":
-            args.lr = base_lr * (args.lr_decay ** (iter + 1))
-        elif args.lr_scheduler == "step":
-            args.lr = base_lr * (args.lr_decay ** ((iter + 1) // args.lr_step_size))
-        elif args.lr_scheduler == "cosine":
-            args.lr = 0.5 * base_lr * (1 + np.cos(np.pi * (iter + 1) / args.epochs))
-        # constant の場合は args.lr を維持
-
-        end_time = time.time()
-        round_time = end_time - start_time
-
+        round_time = time.time() - start_time
         print(
-            f"Round {iter:3d}, LR: {current_lr:.6f}, Average Loss: {loss_avg:.3f}, Test Accuracy: {acc_test:.2f}%, Time: {round_time:.2f}s"
+            f"Round {round_idx:3d}, LR: {lr:.6f}, Average Loss: {loss_avg:.3f}, Test Accuracy: {acc_test:.2f}%, Time: {round_time:.2f}s"
         )
 
     # 結果のプロット

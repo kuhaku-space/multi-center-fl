@@ -1,65 +1,58 @@
-import os
 import zipfile
+from pathlib import Path
 
 import requests
 from tqdm import tqdm
 
 # --- 設定 ---
-DATA_ROOT = "./data/nist"
-EXTRACT_ROOT = os.path.join(DATA_ROOT, "extracted")
-
-# 修正点: 辞書(URLS)をやめ、単一の定数に変更しました
+DATA_ROOT = Path("./data/nist")
+EXTRACT_ROOT = DATA_ROOT / "extracted"
 BY_CLASS_URL = "https://s3.amazonaws.com/nist-srd/SD19/by_class.zip"
 
 
-def download_file(url, dest_path):
-    if os.path.exists(dest_path):
-        print(f"[Skip] {os.path.basename(dest_path)} already exists.")
+def download_file(url: str, dest_path: Path):
+    if dest_path.exists():
+        print(f"[Skip] {dest_path.name} already exists.")
         return
 
     print(f"[Download] Downloading {url} ...")
     # 中断時に不完全なファイルが残って次回スキップされないよう、一時ファイルに書き込む
-    tmp_path = dest_path + ".part"
+    tmp_path = dest_path.with_name(dest_path.name + ".part")
     try:
         with requests.get(url, stream=True) as r:
             r.raise_for_status()
             total = int(r.headers.get("content-length", 0))
             with (
-                open(tmp_path, "wb") as f,
+                tmp_path.open("wb") as f,
                 tqdm(total=total, unit="B", unit_scale=True, ncols=80) as bar,
             ):
                 for chunk in r.iter_content(chunk_size=8192):
                     f.write(chunk)
                     bar.update(len(chunk))
-        os.replace(tmp_path, dest_path)
+        tmp_path.rename(dest_path)
         print("Done.")
-    except Exception as e:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+    except (requests.RequestException, OSError) as e:
+        tmp_path.unlink(missing_ok=True)
         print(f"[Error] Failed to download {url}: {e}")
 
 
-def extract_file(zip_path, extract_to):
-    print(f"[Extract] Extracting {os.path.basename(zip_path)} into {extract_to} ...")
-    os.makedirs(extract_to, exist_ok=True)
+def extract_file(zip_path: Path, extract_to: Path):
+    print(f"[Extract] Extracting {zip_path.name} into {extract_to} ...")
+    extract_to.mkdir(parents=True, exist_ok=True)
 
     try:
-        with zipfile.ZipFile(zip_path, "r") as z:
+        with zipfile.ZipFile(zip_path) as z:
             for member in tqdm(z.infolist(), desc="Files", ncols=80):
                 z.extract(member, extract_to)
         print("Done.")
-    except zipfile.BadZipFile:
-        print(f"[Error] Bad zip file: {zip_path}")
+    except (zipfile.BadZipFile, FileNotFoundError) as e:
+        print(f"[Error] Failed to extract {zip_path}: {e}")
 
 
 def main():
-    os.makedirs(DATA_ROOT, exist_ok=True)
-    os.makedirs(EXTRACT_ROOT, exist_ok=True)
+    EXTRACT_ROOT.mkdir(parents=True, exist_ok=True)
 
-    # by_class を extracted に解凍
-    zip_class = os.path.join(DATA_ROOT, "by_class.zip")
-
-    # 修正点: 定数を直接渡すように変更
+    zip_class = DATA_ROOT / "by_class.zip"
     download_file(BY_CLASS_URL, zip_class)
     extract_file(zip_class, EXTRACT_ROOT)
 
@@ -67,7 +60,7 @@ def main():
     print("Setup Complete!")
     print(f"Files extracted into: {EXTRACT_ROOT}")
     print("Structure should be:")
-    print(f"  {EXTRACT_ROOT}/by_class")
+    print(f"  {EXTRACT_ROOT / 'by_class'}")
     print("=" * 50)
 
 

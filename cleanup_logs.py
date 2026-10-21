@@ -1,7 +1,7 @@
 import json
 import shutil
-import sys
 from pathlib import Path
+from typing import NamedTuple
 
 import pandas as pd
 
@@ -9,46 +9,44 @@ import pandas as pd
 LOG_DIR = Path("./logs")
 
 
-def get_experiment_status(exp_dir: Path):
-    """
-    実験フォルダの状態を判定する
-    Return: (is_complete, status_message, current_round, total_rounds)
-    """
+class ExperimentStatus(NamedTuple):
+    is_complete: bool
+    message: str
+    current_round: int = 0
+    total_rounds: int = 0
+
+
+def get_experiment_status(exp_dir: Path) -> ExperimentStatus:
+    """実験フォルダの状態を判定する"""
     config_path = exp_dir / "config.json"
     log_path = exp_dir / "log.csv"
 
     # 1. Configがない = 起動直後に落ちたゴミデータ
     if not config_path.exists():
-        return False, "Missing config.json", 0, 0
+        return ExperimentStatus(False, "Missing config.json")
 
     try:
-        with open(config_path, "r") as f:
-            config = json.load(f)
-            target_rounds = config.get("rounds", 0)
-    except Exception as e:
-        return False, f"Broken config: {e}", 0, 0
+        target_rounds = json.loads(config_path.read_text()).get("rounds", 0)
+    except (OSError, json.JSONDecodeError) as e:
+        return ExperimentStatus(False, f"Broken config: {e}")
 
     # 2. Logがない = 学習が始まる前に落ちた
     if not log_path.exists():
-        return False, "Missing log.csv", 0, target_rounds
+        return ExperimentStatus(False, "Missing log.csv", 0, target_rounds)
 
     try:
         df = pd.read_csv(log_path)
-        if df.empty or "Round" not in df.columns:
-            return False, "Empty or invalid log.csv", 0, target_rounds
+    except (OSError, pd.errors.ParserError) as e:
+        return ExperimentStatus(False, f"Error reading log: {e}", 0, target_rounds)
 
-        # 最終ラウンドを取得
-        last_round = df["Round"].max()
+    if df.empty or "Round" not in df.columns:
+        return ExperimentStatus(False, "Empty or invalid log.csv", 0, target_rounds)
 
-        # 3. 完了判定 (最終ラウンドが設定値に達しているか)
-        # ※ 1-based indexing と仮定して比較
-        if last_round >= target_rounds:
-            return True, "Complete", last_round, target_rounds
-        else:
-            return False, "Incomplete", last_round, target_rounds
-
-    except Exception as e:
-        return False, f"Error reading log: {e}", 0, target_rounds
+    # 3. 完了判定 (最終ラウンドが設定値に達しているか。Roundは1始まり)
+    last_round = int(df["Round"].max())
+    is_complete = last_round >= target_rounds
+    message = "Complete" if is_complete else "Incomplete"
+    return ExperimentStatus(is_complete, message, last_round, target_rounds)
 
 
 def main():
@@ -58,24 +56,25 @@ def main():
 
     print(f"Checking experiments in {LOG_DIR}...\n")
 
-    experiments = sorted([d for d in LOG_DIR.iterdir() if d.is_dir()])
+    experiments = sorted(d for d in LOG_DIR.iterdir() if d.is_dir())
     deletion_candidates = []
 
-    # ヘッダー表示
     print(f"{'Experiment ID':<25} | {'Status':<25} | {'Progress':<10}")
     print("-" * 65)
 
     for exp_dir in experiments:
-        is_complete, msg, curr, total = get_experiment_status(exp_dir)
+        status = get_experiment_status(exp_dir)
+        progress = (
+            f"{status.current_round}/{status.total_rounds}"
+            if status.total_rounds > 0
+            else "-"
+        )
+        mark = "✅" if status.is_complete else "❌"
+        print(
+            f"{exp_dir.name:<25} | {mark + ' ' + status.message:<25} | {progress:<10}"
+        )
 
-        status_str = f"{curr}/{total}" if total > 0 else "-"
-
-        if is_complete:
-            # 完了しているものは緑色（対応端末のみ）またはそのまま表示
-            print(f"{exp_dir.name:<25} | {'✅ ' + msg:<25} | {status_str:<10}")
-        else:
-            # 未完了のものはリストに追加
-            print(f"{exp_dir.name:<25} | {'❌ ' + msg:<25} | {status_str:<10}")
+        if not status.is_complete:
             deletion_candidates.append(exp_dir)
 
     print("-" * 65)
@@ -89,18 +88,18 @@ def main():
     print("WARNING: These directories will be permanently deleted.")
 
     choice = input("Do you want to delete them? [y/N]: ").strip().lower()
-
-    if choice == "y":
-        print("\nDeleting...")
-        for d in deletion_candidates:
-            try:
-                shutil.rmtree(d)
-                print(f"Deleted: {d.name}")
-            except Exception as e:
-                print(f"Failed to delete {d.name}: {e}")
-        print("\nCleanup finished!")
-    else:
+    if choice != "y":
         print("\nOperation cancelled. No files were deleted.")
+        return
+
+    print("\nDeleting...")
+    for d in deletion_candidates:
+        try:
+            shutil.rmtree(d)
+            print(f"Deleted: {d.name}")
+        except OSError as e:
+            print(f"Failed to delete {d.name}: {e}")
+    print("\nCleanup finished!")
 
 
 if __name__ == "__main__":
