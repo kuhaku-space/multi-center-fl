@@ -92,11 +92,13 @@ uv run mcfl-train --num-centers 3 --rounds 100 --noniid-type dirichlet --alpha 0
 | --- | --- |
 | FedAvg ([McMahan et al., 2017](https://arxiv.org/abs/1602.05629)) | `uv run mcfl-train --num-centers 1 --pretrain-rounds 0` |
 | FedProx ([Li et al., 2020](https://arxiv.org/abs/1812.06127)) | `uv run mcfl-train --num-centers 1 --pretrain-rounds 0 --prox-mu 0.01` |
+| IFCA ([Ghosh et al., 2020](https://arxiv.org/abs/2006.04088)) | `uv run mcfl-train --assignment loss --pretrain-rounds 0` |
 | Local only | `uv run mcfl-train --method local` |
 | FedAvg + fine-tuning | `uv run mcfl-train --num-centers 1 --pretrain-rounds 0 --finetune-epochs 5` |
 
 - センターが 1 つなら、M-step は参加クライアントの重みの平均になり、FedAvg と一致する。ただし平均はサンプル数で重み付けしない単純平均（マルチセンター連合学習の M-step と同じ）。
 - マルチセンター連合学習は、`--rounds` とは別に `--pretrain-rounds` ラウンドの FedAvg 事前学習と、全クライアントによる 1 回のローカル学習（K-Means 用）を行う。通信量を揃えて比較する場合は、FedAvg の `--rounds` をその分増やす。
+- IFCA は IFCA の model averaging 版に相当する（全センターのモデルを配信し、各クライアントが学習データ全体の損失が最小のセンターを選んでローカル学習し、センターごとに平均する。センターはランダム初期化）。毎ラウンド K 個のモデルを配信するため、下り通信量は FedAvg や距離ベースの E-step の K 倍になる。`--pretrain-rounds` を正にすれば、本実装と同じ K-Means 初期化を使った IFCA になる。
 - Local only は通信せず、`--frac` によらず毎ラウンド全クライアントが自分のモデルを `--local-epochs` エポック学習し、自分のテストデータで評価する。`--num-centers` と `--pretrain-rounds` は無視される。
 - `--finetune-epochs` はマルチセンター連合学習とも組み合わせられる（各クライアントが所属センターのモデルから fine-tuning する）。
 
