@@ -1,5 +1,7 @@
 import json
+import math
 from pathlib import Path
+from typing import NamedTuple
 
 import pandas as pd
 import plotly.express as px
@@ -30,17 +32,47 @@ def _read_csv(path: Path) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def _read_json(path: Path) -> dict:
+    return json.loads(path.read_text()) if path.exists() else {}
+
+
+class ExperimentData(NamedTuple):
+    config: dict
+    meta: dict
+    summary: dict
+    log_df: pd.DataFrame
+    alloc_df: pd.DataFrame
+    client_round_df: pd.DataFrame
+    client_eval_df: pd.DataFrame
+
+
 @st.cache_data
-def load_data(exp_id: str) -> tuple[dict, pd.DataFrame, pd.DataFrame]:
-    """指定された実験IDの設定・指標・クライアント割り当てを読み込む"""
+def load_data(exp_id: str) -> ExperimentData:
+    """指定された実験IDのログを読み込む（古い実験にないファイルは空になる）"""
     exp_path = LOG_DIR / exp_id
+    return ExperimentData(
+        config=_read_json(exp_path / "config.json"),
+        meta=_read_json(exp_path / "meta.json"),
+        summary=_read_json(exp_path / "summary.json"),
+        log_df=_read_csv(exp_path / "log.csv"),
+        alloc_df=_read_csv(exp_path / "client_allocation.csv"),
+        client_round_df=_read_csv(exp_path / "client_round.csv"),
+        client_eval_df=_read_csv(exp_path / "client_eval.csv"),
+    )
 
-    config_path = exp_path / "config.json"
-    config = json.loads(config_path.read_text()) if config_path.exists() else {}
 
-    log_df = _read_csv(exp_path / "log.csv")
-    alloc_df = _read_csv(exp_path / "client_allocation.csv")
-    return config, log_df, alloc_df
+def render_run_info(data: ExperimentData):
+    status = data.summary.get("status", "unknown (no summary.json)")
+    st.caption(f"Status: **{status}**")
+    if data.summary.get("error"):
+        with st.expander("❌ Error", expanded=False):
+            st.code(data.summary["error"])
+
+    with st.expander("📝 Experiment Configuration", expanded=False):
+        st.json(data.config)
+    if data.meta:
+        with st.expander("🖥️ Environment", expanded=False):
+            st.json(data.meta)
 
 
 def render_kpis(log_df: pd.DataFrame):
@@ -81,7 +113,15 @@ def render_training_metrics(log_df: pd.DataFrame):
             st.plotly_chart(fig_loss, width="stretch")
 
     with tab2:
-        if "Time" in log_df.columns:
+        if {"Train Time", "Eval Time"} <= set(log_df.columns):
+            fig_time = px.bar(
+                log_df,
+                x="Round",
+                y=["Train Time", "Eval Time"],
+                title="Execution Time per Round (seconds)",
+            )
+            st.plotly_chart(fig_time, width="stretch")
+        elif "Time" in log_df.columns:
             fig_time = px.bar(
                 log_df, x="Round", y="Time", title="Execution Time per Round (seconds)"
             )
@@ -92,7 +132,7 @@ def render_training_metrics(log_df: pd.DataFrame):
 
 def render_cluster_sizes(log_df: pd.DataFrame):
     st.subheader("👥 Cluster Sizes")
-    center_cols = [c for c in log_df.columns if c.startswith("Center_")]
+    center_cols = [c for c in log_df.columns if c.endswith("_Clients")]
     if not center_cols:
         return
 
@@ -113,6 +153,64 @@ def render_cluster_sizes(log_df: pd.DataFrame):
         title="Client Distribution per Center",
     )
     st.plotly_chart(fig_cluster, width="stretch")
+
+
+def render_center_metrics(log_df: pd.DataFrame):
+    acc_cols = [c for c in log_df.columns if c.endswith("_Accuracy")]
+    if not acc_cols:
+        return
+
+    st.subheader("🎯 Per-Center Accuracy")
+    st.caption("評価時にそのセンターが選ばれたクライアントだけで集計した精度です。")
+    # 全体の Accuracy 列と名前が衝突しないよう、必要な列だけを縦持ちにする
+    center_df = log_df[["Round", *acc_cols]].melt(
+        id_vars=["Round"], var_name="Center", value_name="Accuracy"
+    )
+    center_df["Center"] = center_df["Center"].str.replace(
+        r"Center_(\d+)_Accuracy", r"C\1", regex=True
+    )
+    fig = px.line(
+        center_df,
+        x="Round",
+        y="Accuracy",
+        color="Center",
+        title="Accuracy per Center",
+        markers=True,
+    )
+    st.plotly_chart(fig, width="stretch")
+
+
+def render_assignment_entropy(client_round_df: pd.DataFrame, num_centers: int):
+    if client_round_df.empty:
+        return
+
+    st.subheader("🎲 Assignment Uncertainty")
+    st.caption(
+        "E-step の割り当て確率のエントロピー（参加クライアントの平均）。"
+        f"点線の log K = {math.log(num_centers):.3f} は一様な割り当て（センターを区別できていない状態）を表します。"
+    )
+    entropy_df = client_round_df.groupby("Round", as_index=False)["Entropy"].mean()
+    fig = px.line(
+        entropy_df,
+        x="Round",
+        y="Entropy",
+        title="Mean Assignment Entropy",
+        markers=True,
+    )
+    fig.add_hline(y=math.log(num_centers), line_dash="dot", annotation_text="log K")
+    st.plotly_chart(fig, width="stretch")
+
+
+def render_client_accuracy(client_eval_df: pd.DataFrame):
+    if client_eval_df.empty:
+        return
+
+    st.subheader("🧑‍🤝‍🧑 Per-Client Accuracy")
+    st.caption("各ラウンドにおけるクライアントごとのテスト精度の分布です。")
+    fig = px.box(
+        client_eval_df, x="Round", y="Accuracy", title="Client Accuracy Distribution"
+    )
+    st.plotly_chart(fig, width="stretch")
 
 
 def render_allocation_heatmap(alloc_df: pd.DataFrame, num_centers: int):
@@ -182,11 +280,11 @@ def main():
     if st.sidebar.button("🔄 Refresh Data"):
         st.cache_data.clear()  # キャッシュクリアして再読み込み
 
-    config, log_df, alloc_df = load_data(selected_exp)
+    data = load_data(selected_exp)
+    num_centers = data.config.get("num_centers", 5)
+    render_run_info(data)
 
-    with st.expander("📝 Experiment Configuration", expanded=False):
-        st.json(config)
-
+    log_df = data.log_df
     if log_df.empty:
         st.error("Log data (log.csv) is empty or not found.")
         return
@@ -194,8 +292,11 @@ def main():
     render_kpis(log_df)
     st.divider()
     render_training_metrics(log_df)
+    render_center_metrics(log_df)
     render_cluster_sizes(log_df)
-    render_allocation_heatmap(alloc_df, config.get("num_centers", 5))
+    render_assignment_entropy(data.client_round_df, num_centers)
+    render_client_accuracy(data.client_eval_df)
+    render_allocation_heatmap(data.alloc_df, num_centers)
 
 
 if __name__ == "__main__":
