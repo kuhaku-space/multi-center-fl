@@ -41,6 +41,10 @@ class Server:
         ]
         self.criterion = nn.CrossEntropyLoss()
 
+    def load_centers(self, centers: list[StateDict]):
+        for model, weights in zip(self.models, centers, strict=True):
+            model.load_state_dict(weights)
+
     def aggregate(self, updates: list[tuple[list[float], StateDict, float]]):
         """
         M-step: 各センターを、そのセンターに割り当てられたクライアントの重みの平均で更新する

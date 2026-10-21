@@ -11,6 +11,7 @@ from mcfl.client import Client, sample_clients
 from mcfl.config import Config
 from mcfl.dataset import NistDataManager
 from mcfl.experiment_logger import LOG_FORMAT, ExperimentLogger
+from mcfl.init_centers import initialize_centers
 from mcfl.server import Server, summarize
 
 logger = logging.getLogger(__name__)
@@ -137,9 +138,15 @@ def train(config: Config, exp_logger: ExperimentLogger):
     clients = [Client(ds, config) for ds in datasets]
     server = Server(config)
     log_data_summary(clients)
-    exp_logger.save_clients(clients)
 
-    # 3. 学習ループ
+    # 3. センターの初期化
+    init_centers = None
+    if config.pretrain_rounds > 0:
+        centers, init_centers = initialize_centers(clients, config)
+        server.load_centers(centers)
+    exp_logger.save_clients(clients, init_centers)
+
+    # 4. 学習ループ
     logger.info(
         f"Start Training with {len(clients)} writers. (Centers: {config.num_centers})"
     )

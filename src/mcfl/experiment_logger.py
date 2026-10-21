@@ -78,8 +78,10 @@ class ExperimentLogger:
         logging.getLogger().removeHandler(self._file_handler)
         self._file_handler.close()
 
-    def save_clients(self, clients: list[Client]):
-        """各クライアントのデータ数を保存する"""
+    def save_clients(
+        self, clients: list[Client], init_centers: list[int] | None = None
+    ):
+        """各クライアントのデータ数（と K-Means による初期クラスタ）を保存する"""
         df = pd.DataFrame(
             {
                 "Writer ID": [c.writer_id for c in clients],
@@ -87,6 +89,8 @@ class ExperimentLogger:
                 "Test Samples": [len(c.test_dataset) for c in clients],
             }
         )
+        if init_centers is not None:
+            df["Init Center"] = init_centers
         df.to_csv(self.save_dir / "clients.csv", index=False)
         # 割り当ての列は全クライアントで固定（未参加のラウンドは空欄になる）
         self.allocation_columns = ["Round"] + sorted(df["Writer ID"])

@@ -6,14 +6,20 @@ NIST Special Database 19 の手書き文字データを使った、マルチセ�
 
 ## 手法の概要
 
-各ラウンドで以下を繰り返します。
+学習の前に、センターの初期値を作ります（[init_centers.py](src/mcfl/init_centers.py)、`--pretrain-rounds 0` で無効化してランダム初期化）。
+
+1. 共通モデルを FedAvg で `pretrain_rounds` ラウンド事前学習する。
+2. 全クライアントが事前学習モデルからローカル学習し、学習後の重み（事前学習モデルからの差分）を K-Means でクラスタリングする。
+3. 各クラスタに属するクライアントの重みの平均を、各センターの初期値とする。
+
+その後、各ラウンドで以下を繰り返します。
 
 1. **クライアントのサンプリング**: 全クライアントのうち `frac` の割合をランダムに選ぶ。
 2. **E-step**（[client.py](src/mcfl/client.py)）: 各クライアントが学習データの先頭バッチで全センターの損失を計算し、`softmax(-loss / τ)` でセンターへのソフト割り当て確率を求める。確率が最大のセンターのモデルをコピーしてローカル学習する。
 3. **M-step**（[server.py](src/mcfl/server.py)）: 各センターのモデルを、そのセンターに割り当てられた（確率が最大の）クライアントの重みの平均で更新する。割り当てられたクライアントがいないセンターは前のモデルを維持する。
 4. **評価**: 各クライアントのテストデータで、損失が最小のセンターのモデルを選んで精度を測る。
 
-> 公式実装 ([caifederated/multi-center-fed-learning](https://github.com/caifederated/multi-center-fed-learning)) はクライアント重みに対する K-Means を使っていますが、本実装は論文の記述どおり損失ベースの EM アルゴリズムを採用しています。
+> 公式実装 ([caifederated/multi-center-fed-learning](https://github.com/caifederated/multi-center-fed-learning)) は各ラウンドの割り当てにもクライアント重みに対する K-Means を使っていますが、本実装では K-Means は初期化にだけ使い、各ラウンドの割り当ては損失ベースで行います。
 
 ## 必要環境
 
@@ -55,6 +61,7 @@ uv run mcfl-train
 | `--max-writers` | `100` | 使用する書き手（クライアント）の最大数 |
 | `--max-imgs-per-writer` | `100` | 書き手 1 人あたりの最大画像数 |
 | `--noniid-type` | `writer` | Non-IID 分割方法。`writer`: 書き手ごとの自然な分割、`dirichlet`: Dirichlet 分布でクラス分布を偏らせる |
+| `--pretrain-rounds` | `5` | センター初期化前の FedAvg 事前学習ラウンド数（`0` でランダム初期化） |
 | `--alpha` | `0.5` | Dirichlet 分布の集中度（小さいほど偏りが強い） |
 | `--data-root` | `./data/nist/extracted` | データのルートディレクトリ |
 | `--device` | `cuda`（利用可能な場合） | 使用デバイス |
@@ -116,7 +123,7 @@ MNIST 上で FedAvg ([McMahan et al., 2017](https://arxiv.org/abs/1602.05629)) �
 | `summary.json` | 終了状態（`completed` / `failed` / `interrupted`）、実行時間、最終ラウンドと最高精度のラウンドの指標、失敗時のトレースバック |
 | `train.log` | コンソールに出力されたログ（例外のトレースバックを含む） |
 | `log.csv` | ラウンドごとの学習損失・検証損失・精度・実行時間（合計、学習、評価）・各センターの所属クライアント数・センターごとの精度と検証損失 |
-| `clients.csv` | 各クライアントの学習データ数・テストデータ数 |
+| `clients.csv` | 各クライアントの学習データ数・テストデータ数・K-Means による初期クラスタ（`Init Center`、事前学習時のみ） |
 | `client_round.csv` | 縦持ち形式。ラウンドごとに参加したクライアントの所属センター、各センターへの割り当て確率 (`P_k`)、割り当て確率のエントロピー、学習損失 |
 | `client_eval.csv` | 縦持ち形式。ラウンドごと・クライアントごとの評価結果（評価に使ったセンター、精度、検証損失、テストデータ数） |
 | `client_allocation.csv` | ラウンドごとの各クライアントの所属センター（行: ラウンド、列: クライアント） |
@@ -132,6 +139,7 @@ MNIST 上で FedAvg ([McMahan et al., 2017](https://arxiv.org/abs/1602.05629)) �
 | [src/mcfl/model.py](src/mcfl/model.py) | CNN モデル |
 | [src/mcfl/client.py](src/mcfl/client.py) | クライアント（E-step とローカル学習） |
 | [src/mcfl/server.py](src/mcfl/server.py) | サーバー（M-step と評価） |
+| [src/mcfl/init_centers.py](src/mcfl/init_centers.py) | FedAvg 事前学習と K-Means によるセンターの初期化 |
 | [src/mcfl/experiment_logger.py](src/mcfl/experiment_logger.py) | 実験ログの保存 |
 | [app.py](app.py) | Streamlit ダッシュボード |
 | [scripts/setup_data.py](scripts/setup_data.py) | NIST データのダウンロード |

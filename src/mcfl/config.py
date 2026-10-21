@@ -28,6 +28,8 @@ class Config:
     # EM algorithm設定 (Multi-Center FL paper)
     # Temperature for soft assignment (lower = harder assignment)
     em_temperature: float = 1.0
+    # センター初期化前の FedAvg 事前学習ラウンド数（0 ならランダム初期化）
+    pretrain_rounds: int = 5
 
     # 高速化設定
     num_workers: int = 0  # GPUなら0推奨
@@ -97,6 +99,12 @@ class Config:
             type=float,
             default=d.alpha,
             help="Dirichlet concentration parameter (smaller alpha = more non-IID)",
+        )
+        parser.add_argument(
+            "--pretrain-rounds",
+            type=int,
+            default=d.pretrain_rounds,
+            help="FedAvg rounds before initializing centers by K-Means (0: random init)",
         )
         parser.add_argument(
             "--num-workers", type=int, default=d.num_workers, help="Number of workers"
