@@ -12,7 +12,8 @@ from mcfl.config import Config
 from mcfl.dataset import NistDataManager
 from mcfl.experiment_logger import LOG_FORMAT, ExperimentLogger
 from mcfl.init_centers import initialize_centers
-from mcfl.server import Server, macro_accuracy, summarize
+from mcfl.model import SimpleCNN
+from mcfl.server import ClientEval, Server, macro_accuracy, summarize
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +81,6 @@ def run_round(
     sampled_indices = sample_round_clients(clients, server, config)
 
     updates: list[ClientUpdate] = []
-    center_counts = dict.fromkeys(range(config.num_centers), 0)
 
     # 選択されたクライアントで学習
     for idx in tqdm(
@@ -95,18 +95,77 @@ def run_round(
         else:
             update = client.participate(server.models)
         updates.append(update)
-        center_counts[update.center] += 1
 
     # 集約
     server.aggregate(updates)
-    avg_train_loss = float(np.mean([u.train_loss for u in updates]))
     train_time = time.time() - start_time
 
     # 評価
     eval_start = time.time()
     eval_results = server.evaluate(clients)
-    acc, val_loss = summarize(eval_results)
     eval_time = time.time() - eval_start
+
+    log_round(
+        round_num, updates, eval_results, train_time, eval_time, config, exp_logger
+    )
+
+
+def run_local_round(
+    round_num: int,
+    clients: list[Client],
+    models: list[torch.nn.Module],
+    config: Config,
+    exp_logger: ExperimentLogger,
+):
+    """
+    Local only ベースラインの1ラウンド
+
+    通信せずに各クライアントが自分のモデルを local_epochs エポック学習し、自分のテストデータで評価する。
+    協調しない場合の下限として、frac によらず毎ラウンド全クライアントが学習する
+    """
+    start_time = time.time()
+    updates = []
+    for client, model in tqdm(
+        zip(clients, models, strict=True),
+        desc=f"Round {round_num}/{config.rounds}",
+        total=len(clients),
+        leave=False,
+        ncols=80,
+    ):
+        loss = client.train(model, config.local_epochs)
+        updates.append(
+            ClientUpdate(client.writer_id, 0, 0, {}, model.state_dict(), loss)
+        )
+    train_time = time.time() - start_time
+
+    eval_start = time.time()
+    eval_results = [
+        ClientEval(client.writer_id, 0, *client.evaluate(model))
+        for client, model in zip(clients, models, strict=True)
+        if client.test_loader is not None
+    ]
+    eval_time = time.time() - eval_start
+
+    log_round(
+        round_num, updates, eval_results, train_time, eval_time, config, exp_logger
+    )
+
+
+def log_round(
+    round_num: int,
+    updates: list[ClientUpdate],
+    eval_results: list[ClientEval],
+    train_time: float,
+    eval_time: float,
+    config: Config,
+    exp_logger: ExperimentLogger,
+):
+    """1ラウンドの結果をコンソールとログファイルに出力する"""
+    avg_train_loss = float(np.mean([u.train_loss for u in updates]))
+    acc, val_loss = summarize(eval_results)
+    center_counts = dict.fromkeys(range(config.num_centers), 0)
+    for u in updates:
+        center_counts[u.center] += 1
 
     counts_str = ", ".join(f"C{k}: {v}" for k, v in center_counts.items())
     logger.info(
@@ -153,8 +212,13 @@ def train(config: Config, exp_logger: ExperimentLogger):
 
     # 2. Client / Server 初期化
     clients = [Client(ds, config) for ds in datasets]
-    server = Server(config)
     log_data_summary(clients)
+
+    if config.method == "local":
+        train_local(clients, config, exp_logger)
+        return
+
+    server = Server(config)
 
     # 3. センターの初期化
     init_centers = None
@@ -177,6 +241,18 @@ def train(config: Config, exp_logger: ExperimentLogger):
 
     if config.save_models:
         exp_logger.save_models(server.models)
+    logger.info("Training Finished.")
+
+
+def train_local(clients: list[Client], config: Config, exp_logger: ExperimentLogger):
+    """Local only ベースライン: 各クライアントが自分のモデルを自分のデータだけで学習する"""
+    exp_logger.save_clients(clients)
+    device = torch.device(config.device)
+    models = [SimpleCNN(config.num_classes).to(device) for _ in clients]
+
+    logger.info(f"Start local-only training with {len(clients)} writers.")
+    for r in range(1, config.rounds + 1):
+        run_local_round(r, clients, models, config, exp_logger)
     logger.info("Training Finished.")
 
 

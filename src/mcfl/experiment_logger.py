@@ -39,6 +39,8 @@ class ExperimentLogger:
         run_name = (
             f"{self.started_at:%Y%m%d_%H%M%S}_K{config.num_centers}_s{config.seed}"
         )
+        if config.method != "mcfl":
+            run_name += f"_{config.method}"
         self.save_dir = _create_run_dir(Path(config.log_base_dir), run_name)
         self.run_id = self.save_dir.name
 

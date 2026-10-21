@@ -10,6 +10,8 @@ logger = logging.getLogger(__name__)
 @dataclass
 class Config:
     # 基本設定
+    # mcfl: マルチセンター連合学習、local: 各クライアントが自分のデータだけで学習する（比較用）
+    method: str = "mcfl"
     num_centers: int = 2
     rounds: int = 50
     local_epochs: int = 5
@@ -60,6 +62,13 @@ class Config:
         )
         d = cls()
 
+        parser.add_argument(
+            "--method",
+            type=str,
+            default=d.method,
+            choices=["mcfl", "local"],
+            help="Training method (mcfl: multi-center FL, local: each client trains alone)",
+        )
         parser.add_argument(
             "--num-centers", type=int, default=d.num_centers, help="Number of centers"
         )
@@ -172,6 +181,11 @@ class Config:
         )
 
         config = cls(**vars(parser.parse_args()))
+
+        # local ではセンターを使わない。ログの集計に合わせて 1 つのセンターとして扱う
+        if config.method == "local":
+            config.num_centers = 1
+            config.pretrain_rounds = 0
 
         # loss モードには所属センターがないため、センターごとに抽出できない
         if config.sampling == "center" and config.assignment != "distance":
