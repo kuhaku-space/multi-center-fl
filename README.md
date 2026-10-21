@@ -1,4 +1,4 @@
-# FederatedLeaning
+# mcfl
 
 NIST Special Database 19 の手書き文字データを使った、マルチセンター連合学習 (Multi-Center Federated Learning) のシミュレーション実装です。
 
