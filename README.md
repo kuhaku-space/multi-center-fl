@@ -52,7 +52,7 @@ uv run mcfl-train
 
 | オプション | デフォルト | 説明 |
 | --- | --- | --- |
-| `--method` | `mcfl` | 学習方法（`mcfl`: マルチセンター連合学習、`local`: 各クライアントが自分のデータだけで学習する比較用の Local only、`cfl`: 比較用の CFL） |
+| `--method` | `mcfl` | 学習方法（`mcfl`: マルチセンター連合学習、`local`: 各クライアントが自分のデータだけで学習する比較用の Local only、`cfl`: 比較用の CFL、`oracle`: 正解のグループをセンターの所属に使う比較用の上限） |
 | `--num-centers` | `2` | センター（グローバルモデル）の数 |
 | `--rounds` | `50` | 通信ラウンド数 |
 | `--local-epochs` | `5` | クライアントごとのローカルエポック数 |
@@ -100,6 +100,7 @@ uv run mcfl-train --num-centers 3 --rounds 100 --noniid-type dirichlet --alpha 0
 | IFCA ([Ghosh et al., 2020](https://arxiv.org/abs/2006.04088)) | `uv run mcfl-train --assignment loss --pretrain-rounds 0` |
 | CFL ([Sattler et al., 2020](https://arxiv.org/abs/1910.01991)) | `uv run mcfl-train --method cfl --frac 1.0 --num-centers 10` |
 | Local only | `uv run mcfl-train --method local` |
+| Oracle | `uv run mcfl-train --method oracle --cluster-shift rotation` |
 | FedAvg + fine-tuning | `uv run mcfl-train --num-centers 1 --pretrain-rounds 0 --finetune-epochs 5` |
 
 - センターが 1 つなら、M-step は参加クライアントの重みの平均になり、FedAvg と一致する。ただし平均はサンプル数で重み付けしない単純平均（マルチセンター連合学習の M-step と同じ）。
@@ -107,6 +108,8 @@ uv run mcfl-train --num-centers 3 --rounds 100 --noniid-type dirichlet --alpha 0
 - IFCA は IFCA の model averaging 版に相当する（全センターのモデルを配信し、各クライアントが学習データ全体の損失が最小のセンターを選んでローカル学習し、センターごとに平均する。センターはランダム初期化）。毎ラウンド K 個のモデルを配信するため、下り通信量は FedAvg や距離ベースの E-step の K 倍になる。`--pretrain-rounds` を正にすれば、本実装と同じ K-Means 初期化を使った IFCA になる。
 - CFL は 1 つのクラスタ（ランダム初期化）から始めて各クラスタで FedAvg を行い、クラスタの更新の平均のノルムが `--cfl-eps1` より小さく、更新のノルムの最大が `--cfl-eps2` より大きいクラスタを、更新のコサイン類似度による階層クラスタリング（complete linkage）で 2 つに分割する（公式実装と同じ判定）。クラスタ数は事前に決めず、`--num-centers` は上限として使う。分割に全メンバーの更新が必要なため `--frac 1.0` が必須。ノルムの大きさはモデルや学習率に依存するので、`train.log` の各クラスタの `Mean norm` / `Max norm` と `client_round.csv` の `Update Norm` を見て閾値を調整する。
 - Local only は通信せず、`--frac` によらず毎ラウンド全クライアントが自分のモデルを `--local-epochs` エポック学習し、自分のテストデータで評価する。`--num-centers` と `--pretrain-rounds` は無視される。
+- Oracle は `--cluster-shift` で作った正解のグループごとに 1 つのセンターを持ち、各クライアントを自分のグループのセンターに固定して FedAvg を行う（クラスタリングが完璧な場合の上限）。`--num-centers` は `--num-groups` に、`--pretrain-rounds` は 0 になる。
+- 正解のあるクラスタ構造で比較するときは、全手法に同じ `--cluster-shift` と `--num-groups` を指定する（例: `--cluster-shift rotation --num-groups 4 --num-centers 4`）。所属センターが正解のグループをどれだけ復元できたかを `log.csv` の `ARI` で比較できる。
 - `--finetune-epochs` はマルチセンター連合学習とも組み合わせられる（各クライアントが所属センターのモデルから fine-tuning する）。
 
 ### 結果の可視化

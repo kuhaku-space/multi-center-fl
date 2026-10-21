@@ -91,8 +91,8 @@ def run_round(
         ncols=80,
     ):
         client = clients[idx]
-        if isinstance(server, CFLServer):
-            update = server.participate(client)
+        if config.method in ("cfl", "oracle"):
+            update = server.participate_fixed(client)
         elif config.assignment == "distance":
             update = server.participate_by_distance(client)
         else:
@@ -224,6 +224,8 @@ def train(config: Config, exp_logger: ExperimentLogger):
         return
 
     server = CFLServer(config, clients) if config.method == "cfl" else Server(config)
+    if config.method == "oracle":
+        server.assignments = {c.writer_id: c.group for c in clients}
 
     # 3. センターの初期化
     init_centers = None

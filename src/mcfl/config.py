@@ -11,7 +11,8 @@ logger = logging.getLogger(__name__)
 class Config:
     # 基本設定
     # mcfl: マルチセンター連合学習、local: 各クライアントが自分のデータだけで学習する（比較用）、
-    # cfl: Clustered Federated Learning（比較用。num_centers はクラスタ数の上限）
+    # cfl: Clustered Federated Learning（比較用。num_centers はクラスタ数の上限）、
+    # oracle: 正解のグループ（cluster_shift）をセンターの所属に使う（比較用の上限）
     method: str = "mcfl"
     num_centers: int = 2
     rounds: int = 50
@@ -74,8 +75,8 @@ class Config:
             "--method",
             type=str,
             default=d.method,
-            choices=["mcfl", "local", "cfl"],
-            help="Training method (mcfl: multi-center FL, local: each client trains alone, cfl: clustered FL with --num-centers as the max clusters)",
+            choices=["mcfl", "local", "cfl", "oracle"],
+            help="Training method (mcfl: multi-center FL, local: each client trains alone, cfl: clustered FL with --num-centers as the max clusters, oracle: centers from the ground-truth groups of --cluster-shift)",
         )
         parser.add_argument(
             "--num-centers", type=int, default=d.num_centers, help="Number of centers"
@@ -236,6 +237,13 @@ class Config:
             config.pretrain_rounds = 0
             if config.frac != 1.0:
                 parser.error("--method cfl requires --frac 1.0")
+
+        # oracle は正解のグループごとに1つのセンターを持ち、所属は固定する
+        if config.method == "oracle":
+            if config.cluster_shift == "none":
+                parser.error("--method oracle requires --cluster-shift")
+            config.num_centers = config.num_groups
+            config.pretrain_rounds = 0
 
         # loss モードには所属センターがないため、センターごとに抽出できない
         if config.sampling == "center" and config.assignment != "distance":

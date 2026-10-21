@@ -29,12 +29,6 @@ class CFLServer(Server):
         self.assignments = {c.writer_id: 0 for c in clients}
         self.round_num = 0
 
-    def participate(self, client: Client) -> ClientUpdate:
-        """所属クラスタのモデルからローカル学習する"""
-        center = self.assignments[client.writer_id]
-        weights, avg_loss = client.train_from(self.models[center])
-        return ClientUpdate(client.writer_id, center, center, {}, weights, avg_loss)
-
     def aggregate(self, updates: list[ClientUpdate]):
         """各クラスタを FedAvg で更新し、分割の条件を満たすクラスタを2つに分ける"""
         self.round_num += 1

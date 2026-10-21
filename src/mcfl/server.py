@@ -77,6 +77,12 @@ class Server:
         for model, weights in zip(self.models, centers, strict=True):
             model.load_state_dict(weights)
 
+    def participate_fixed(self, client: Client) -> ClientUpdate:
+        """所属センターからローカル学習し、所属は変えない（CFL と Oracle）"""
+        center = self.assignments[client.writer_id]
+        weights, avg_loss = client.train_from(self.models[center])
+        return ClientUpdate(client.writer_id, center, center, {}, weights, avg_loss)
+
     def participate_by_distance(self, client: Client) -> ClientUpdate:
         """
         距離ベースの E-step（論文の Eq. 8）
