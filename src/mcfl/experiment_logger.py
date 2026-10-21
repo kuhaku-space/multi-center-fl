@@ -18,7 +18,7 @@ from torch import nn
 
 from mcfl.client import Client, ClientUpdate
 from mcfl.config import Config
-from mcfl.server import ClientEval, macro_accuracy, summarize
+from mcfl.server import ClientEval, adjusted_rand_index, macro_accuracy, summarize
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,8 @@ class ExperimentLogger:
         self.client_eval_csv = self.save_dir / "client_eval.csv"
         self.num_centers = config.num_centers
         self.allocation_columns = ["Round"]
+        # 正解のグループ（--cluster-shift 指定時のみ）
+        self.groups: dict[str, int] = {}
         self.last_record: dict | None = None
         self.best_record: dict | None = None
 
@@ -95,6 +97,7 @@ class ExperimentLogger:
             df["Init Center"] = init_centers
         if clients and clients[0].group is not None:
             df["Group"] = [c.group for c in clients]
+            self.groups = {c.writer_id: c.group for c in clients}
         df.to_csv(self.save_dir / "clients.csv", index=False)
         # 割り当ての列は全クライアントで固定（未参加のラウンドは空欄になる）
         self.allocation_columns = ["Round"] + sorted(df["Writer ID"])
@@ -120,6 +123,9 @@ class ExperimentLogger:
             "Train Time": train_time,
             "Eval Time": eval_time,
         }
+        ari = self.cluster_ari(eval_results)
+        if ari is not None:
+            record["ARI"] = ari
         for k, v in center_counts.items():
             record[f"Center_{k}_Clients"] = v
         # 評価時にそのセンターが選ばれたクライアントだけで集計した指標
@@ -135,6 +141,15 @@ class ExperimentLogger:
             self.best_record = record
 
         self._append_csv(self.log_csv, pd.DataFrame([record]))
+
+    def cluster_ari(self, eval_results: list[ClientEval]) -> float | None:
+        """評価に使ったセンターと正解のグループの ARI（正解のグループがなければ None）"""
+        if not self.groups or not eval_results:
+            return None
+        return adjusted_rand_index(
+            [r.center for r in eval_results],
+            [self.groups[r.writer_id] for r in eval_results],
+        )
 
     def save_client_rounds(self, round_num: int, updates: list[ClientUpdate]):
         """そのラウンドに参加したクライアントの割り当て（とその根拠）と学習損失を保存する"""

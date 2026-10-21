@@ -1,5 +1,6 @@
 import copy
 import math
+from collections import Counter
 from dataclasses import dataclass
 
 import torch
@@ -40,6 +41,24 @@ def macro_accuracy(results: list[ClientEval]) -> float:
     if not results:
         return math.nan
     return sum(100 * r.correct / r.samples for r in results) / len(results)
+
+
+def adjusted_rand_index(labels_a: list[int], labels_b: list[int]) -> float:
+    """
+    2つのクラスタリングの一致度 (Adjusted Rand Index)。1 で完全一致、ランダムな割り当てで 0 付近
+
+    どちらも全要素が1つのクラスタなど、偶然の一致と区別できない場合は 1 とする（sklearn と同じ）
+    """
+    n = len(labels_a)
+    pairs = Counter(zip(labels_a, labels_b, strict=True))
+    sum_ab = sum(math.comb(c, 2) for c in pairs.values())
+    sum_a = sum(math.comb(c, 2) for c in Counter(labels_a).values())
+    sum_b = sum(math.comb(c, 2) for c in Counter(labels_b).values())
+    expected = sum_a * sum_b / math.comb(n, 2) if n > 1 else 0.0
+    max_index = (sum_a + sum_b) / 2
+    if max_index == expected:
+        return 1.0
+    return (sum_ab - expected) / (max_index - expected)
 
 
 # --- Server 定義 ---

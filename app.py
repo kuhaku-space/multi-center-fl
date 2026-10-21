@@ -183,6 +183,21 @@ def render_center_metrics(log_df: pd.DataFrame):
     st.plotly_chart(fig, width="stretch")
 
 
+def render_cluster_recovery(log_df: pd.DataFrame):
+    # --cluster-shift 指定時のログにだけある
+    if "ARI" not in log_df.columns:
+        return
+
+    st.subheader("🧩 Cluster Recovery")
+    st.caption(
+        "評価に使ったセンターと正解のグループ（--cluster-shift）の一致度 (Adjusted Rand Index) です。"
+        "1 で完全一致、ランダムな割り当てで 0 付近になります。"
+    )
+    fig = px.line(log_df, x="Round", y="ARI", title="Adjusted Rand Index", markers=True)
+    fig.update_yaxes(range=[-0.1, 1.05])
+    st.plotly_chart(fig, width="stretch")
+
+
 def render_assignment_entropy(client_round_df: pd.DataFrame, num_centers: int):
     # loss モードのログにだけある
     if "Entropy" not in client_round_df.columns:
@@ -317,6 +332,7 @@ def main():
     render_training_metrics(log_df)
     render_center_metrics(log_df)
     render_cluster_sizes(log_df)
+    render_cluster_recovery(log_df)
     render_assignment_entropy(data.client_round_df, num_centers)
     render_reassignment(data.client_round_df)
     render_client_accuracy(data.client_eval_df)

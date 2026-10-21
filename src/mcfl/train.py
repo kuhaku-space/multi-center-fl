@@ -171,8 +171,10 @@ def log_round(
         center_counts[u.center] += 1
 
     counts_str = ", ".join(f"C{k}: {v}" for k, v in center_counts.items())
+    ari = exp_logger.cluster_ari(eval_results)
+    ari_str = f" | ARI: {ari:.3f}" if ari is not None else ""
     logger.info(
-        f"Round {round_num:02d} | Time: {train_time + eval_time:.2f}s | Train: {avg_train_loss:.4f} | Val: {val_loss:.4f} | Acc: {acc:.2f}% | Macro: {macro_accuracy(eval_results):.2f}% | [{counts_str}]"
+        f"Round {round_num:02d} | Time: {train_time + eval_time:.2f}s | Train: {avg_train_loss:.4f} | Val: {val_loss:.4f} | Acc: {acc:.2f}% | Macro: {macro_accuracy(eval_results):.2f}%{ari_str} | [{counts_str}]"
     )
 
     exp_logger.save_round_log(
